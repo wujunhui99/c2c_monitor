@@ -156,14 +156,32 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 				continue
 			}
 
-			// Save to DB
-			// Convert []domain.PricePoint to []*domain.PricePoint
+			// Save Merchants and Prepare PricePoints
 			var ptrs []*domain.PricePoint
 			for i := range prices {
 				// Copy variable to avoid loop pointer issue
 				p := prices[i]
 				ptrs = append(ptrs, &p)
+
+				// Save Merchant Info
+				if p.MerchantID != "" {
+					merchant := &domain.Merchant{
+						Exchange:   p.Exchange,
+						MerchantID: p.MerchantID,
+						NickName:   p.Merchant,
+						CreatedAt:  time.Now(),
+						UpdatedAt:  time.Now(),
+					}
+					// Fire and forget or log error? Log is fine.
+					// Doing it sequentially here might slow down if there are many prices, 
+					// but usually we only fetch top 1 or small N.
+					if err := s.repo.SaveMerchant(ctx, merchant); err != nil {
+						log.Printf("Failed to save merchant %s: %v", p.Merchant, err)
+					}
+				}
 			}
+
+			// Save to DB
 			if err := s.repo.SavePricePoints(ctx, ptrs); err != nil {
 				log.Printf("Failed to save prices: %v", err)
 			}

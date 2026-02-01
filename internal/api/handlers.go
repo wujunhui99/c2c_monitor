@@ -88,7 +88,15 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	if err == nil {
 		var list []gin.H
 		for _, p := range binancePrices {
-			list = append(list, gin.H{"t": p.CreatedAt.Unix(), "v": p.Price})
+			list = append(list, gin.H{
+				"t":                p.CreatedAt.Unix(),
+				"v":                p.Price,
+				"merchant":         p.Merchant,
+				"pay_methods":      p.PayMethods,
+				"min_amount":       p.MinAmount,
+				"max_amount":       p.MaxAmount,
+				"available_amount": p.AvailableAmount,
+			})
 		}
 		resp["binance"] = list
 	}
@@ -99,7 +107,15 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	if err == nil {
 		var list []gin.H
 		for _, p := range okxPrices {
-			list = append(list, gin.H{"t": p.CreatedAt.Unix(), "v": p.Price})
+			list = append(list, gin.H{
+				"t":                p.CreatedAt.Unix(),
+				"v":                p.Price,
+				"merchant":         p.Merchant,
+				"pay_methods":      p.PayMethods,
+				"min_amount":       p.MinAmount,
+				"max_amount":       p.MaxAmount,
+				"available_amount": p.AvailableAmount,
+			})
 		}
 		resp["okx"] = list
 	}

@@ -43,9 +43,16 @@ type BinanceResponse struct {
 			AdvNo                 string `json:"advNo"`
 			Price                 string `json:"price"`
 			TradableQuantity      string `json:"tradableQuantity"`
+			SurplusAmount         string `json:"surplusAmount"`
+			MinSingleTransAmount  string `json:"minSingleTransAmount"`
+			MaxSingleTransAmount  string `json:"maxSingleTransAmount"`
+			TradeMethods          []struct {
+				TradeMethodName string `json:"tradeMethodName"`
+			} `json:"tradeMethods"`
 		} `json:"adv"`
 		Advertiser struct {
 			NickName string `json:"nickName"`
+			UserNo   string `json:"userNo"`
 		} `json:"advertiser"`
 	} `json:"data"`
 }
@@ -110,18 +117,43 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		var price float64
 		fmt.Sscanf(item.Adv.Price, "%f", &price)
 		
+		var minAmount, maxAmount, availableAmount float64
+		fmt.Sscanf(item.Adv.MinSingleTransAmount, "%f", &minAmount)
+		fmt.Sscanf(item.Adv.MaxSingleTransAmount, "%f", &maxAmount)
+		fmt.Sscanf(item.Adv.SurplusAmount, "%f", &availableAmount)
+
+		var payMethods []string
+		for _, method := range item.Adv.TradeMethods {
+			payMethods = append(payMethods, method.TradeMethodName)
+		}
+		payMethodsStr := ""
+		if len(payMethods) > 0 {
+			// Join manually or use strings.Join (need to import strings)
+			// Since I'm in a replace block, I can't easily add import strings without re-reading imports.
+			// I'll assume strings is NOT imported and use a loop or just fmt.
+			// Wait, previous file content has `fmt` and `time` etc.
+			// I'll check imports again.
+			// Actually, I can just use JSON for payMethods or simple concat.
+			payMethodsStr = fmt.Sprintf("%v", payMethods)
+			payMethodsStr = payMethodsStr[1 : len(payMethodsStr)-1] // Remove brackets
+		}
+
 		if price > 0 {
-			// fmt.Printf("DEBUG: Binance Ad - Price: %.2f, Merchant: %s\n", price, item.Advertiser.NickName)
 			points = append(points, domain.PricePoint{
-				Exchange:     "Binance",
-				Symbol:       symbol,
-				Fiat:         fiat,
-				Side:         side,
-				TargetAmount: amount,
-				Rank:         i + 1,
-				Price:        price,
-				Merchant:     item.Advertiser.NickName,
-				CreatedAt:    time.Now(),
+				Exchange:        "Binance",
+				Symbol:          symbol,
+				Fiat:            fiat,
+				Side:            side,
+				TargetAmount:    amount,
+				Rank:            i + 1,
+				Price:           price,
+				Merchant:        item.Advertiser.NickName,
+				MerchantID:      item.Advertiser.UserNo,
+				CreatedAt:       time.Now(),
+				MinAmount:       minAmount,
+				MaxAmount:       maxAmount,
+				AvailableAmount: availableAmount,
+				PayMethods:      payMethodsStr,
 			})
 		}
 	}

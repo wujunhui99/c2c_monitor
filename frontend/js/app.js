@@ -112,11 +112,33 @@ function initChart() {
                 params.forEach(item => {
                     const val = item.value[1];
                     let extra = '';
-                    if (forexVal && item.seriesName !== 'USD/CNY 汇率' && val) {
-                        const diff = ((forexVal - val) / forexVal * 100).toFixed(2);
-                        extra = ` (差价: ${diff}%)`;
+                    
+                    // Forex just shows value
+                    if (item.seriesName === 'USD/CNY 汇率') {
+                        result += `${item.marker} ${item.seriesName}: ${val}<br/>`;
+                        return;
                     }
-                    result += `${item.marker} ${item.seriesName}: ${val}${extra}<br/>`;
+
+                    // C2C Series
+                    if (val) {
+                         // value array: [date, price, merchant, min, max, pay, available]
+                        const merchant = item.value[2] || 'Unknown';
+                        const min = item.value[3] || 0;
+                        const max = item.value[4] || 0;
+                        const pay = item.value[5] || '-';
+                        const avail = item.value[6] || 0;
+
+                        if (forexVal) {
+                            const diff = ((forexVal - val) / forexVal * 100).toFixed(2);
+                            extra += ` <span style="font-weight:bold">(差价: ${diff}%)</span>`;
+                        }
+                        
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">商家: ${merchant}</span>`;
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">限额: ${min} - ${max} CNY</span>`;
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">可用: ${avail} CNY</span>`;
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">支付: ${pay}</span>`;
+                    }
+                    result += `${item.marker} ${item.seriesName}: ${val}${extra}<br/><br/>`;
                 });
                 return result;
             }
@@ -128,6 +150,23 @@ function initChart() {
         series: []
     };
     state.chartInstance.setOption(option);
+    
+    // Click Event
+    state.chartInstance.on('click', function(params) {
+        if (params.componentType === 'series' && params.seriesName !== 'USD/CNY 汇率') {
+             const val = params.value;
+             // val: [date, price, merchant, min, max, pay, available]
+             const date = val[0].toLocaleString();
+             const price = val[1];
+             const merchant = val[2];
+             const min = val[3];
+             const max = val[4];
+             const pay = val[5];
+             const avail = val[6];
+             
+             alert(`详细信息:\n\n时间: ${date}\n价格: ${price} CNY\n商家: ${merchant}\n限额: ${min} - ${max} CNY\n可用: ${avail} CNY\n支付: ${pay}`);
+        }
+    });
     
     // Responsive
     window.addEventListener('resize', () => {
@@ -292,12 +331,21 @@ function renderConfigUI() {
 function updateChart(data) {
     const processData = (list) => {
         if (!list) return [];
-        return list.map(item => [new Date(item.t * 1000), item.v]);
+        return list.map(item => [
+            new Date(item.t * 1000), 
+            item.v,
+            item.merchant,
+            item.min_amount,
+            item.max_amount,
+            item.pay_methods,
+            item.available_amount
+        ]);
     };
 
     const binanceData = processData(data.binance);
     const okxData = processData(data.okx);
-    const forexData = processData(data.forex);
+    // Forex data only has [time, value]
+    const forexData = (data.forex || []).map(item => [new Date(item.t * 1000), item.v]);
 
     state.chartInstance.setOption({
         series: [

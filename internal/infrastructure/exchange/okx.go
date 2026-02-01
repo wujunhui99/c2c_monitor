@@ -33,12 +33,13 @@ type OKXResponse struct {
 }
 
 type OKXAd struct {
-	Price                  string `json:"price"`
-	AvailableAmount        string `json:"availableAmount"`
-	QuoteMinAmountPerOrder string `json:"quoteMinAmountPerOrder"`
-	QuoteMaxAmountPerOrder string `json:"quoteMaxAmountPerOrder"`
-	NickName               string `json:"nickName"`
-	MerchantId             string `json:"merchantId"`
+	Price                  string   `json:"price"`
+	AvailableAmount        string   `json:"availableAmount"`
+	QuoteMinAmountPerOrder string   `json:"quoteMinAmountPerOrder"`
+	QuoteMaxAmountPerOrder string   `json:"quoteMaxAmountPerOrder"`
+	NickName               string   `json:"nickName"`
+	MerchantId             string   `json:"merchantId"`
+	PaymentMethods         []string `json:"paymentMethods"`
 }
 
 func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string, amount float64) ([]domain.PricePoint, error) {
@@ -98,18 +99,30 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 		price, _ := strconv.ParseFloat(ad.Price, 64)
 		minAmount, _ := strconv.ParseFloat(ad.QuoteMinAmountPerOrder, 64)
 		maxAmount, _ := strconv.ParseFloat(ad.QuoteMaxAmountPerOrder, 64)
+		availableAmount, _ := strconv.ParseFloat(ad.AvailableAmount, 64)
+
+		payMethodsStr := ""
+		if len(ad.PaymentMethods) > 0 {
+			payMethodsStr = fmt.Sprintf("%v", ad.PaymentMethods)
+			payMethodsStr = payMethodsStr[1 : len(payMethodsStr)-1]
+		}
 
 		if price > 0 {
 			point := domain.PricePoint{
-				Exchange:     "OKX",
-				Symbol:       symbol,
-				Fiat:         fiat,
-				Side:         side,
-				TargetAmount: amount,
-				Rank:         0, // Will be assigned later
-				Price:        price,
-				Merchant:     ad.NickName,
-				CreatedAt:    time.Now(),
+				Exchange:        "OKX",
+				Symbol:          symbol,
+				Fiat:            fiat,
+				Side:            side,
+				TargetAmount:    amount,
+				Rank:            0, // Will be assigned later
+				Price:           price,
+				Merchant:        ad.NickName,
+				MerchantID:      ad.MerchantId,
+				CreatedAt:       time.Now(),
+				MinAmount:       minAmount,
+				MaxAmount:       maxAmount,
+				AvailableAmount: availableAmount,
+				PayMethods:      payMethodsStr,
 			}
 			allPoints = append(allPoints, point)
 

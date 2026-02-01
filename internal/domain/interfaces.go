@@ -7,16 +7,31 @@ import (
 
 // PricePoint represents a single C2C price record
 type PricePoint struct {
-	ID           int64     `json:"id"`
-	CreatedAt    time.Time `json:"created_at"`
-	Exchange     string    `json:"exchange"`      // e.g., "Binance", "Gate"
-	Symbol       string    `json:"symbol"`        // e.g., "USDT"
-	Fiat         string    `json:"fiat"`          // e.g., "CNY"
-	Side         string    `json:"side"`          // "BUY" or "SELL"
-	TargetAmount float64   `json:"target_amount"` // The filtered amount tier, e.g., 100
-	Rank         int       `json:"rank"`          // 1 = Best price
-	Price        float64   `json:"price"`
-	Merchant     string    `json:"merchant"`      // Merchant nickname
+	ID              int64     `json:"id"`
+	CreatedAt       time.Time `json:"created_at"`
+	Exchange        string    `json:"exchange"`      // e.g., "Binance", "Gate"
+	Symbol          string    `json:"symbol"`        // e.g., "USDT"
+	Fiat            string    `json:"fiat"`          // e.g., "CNY"
+	Side            string    `json:"side"`          // "BUY" or "SELL"
+	TargetAmount    float64   `json:"target_amount"` // The filtered amount tier, e.g., 100
+	Rank            int       `json:"rank"`          // 1 = Best price
+	Price           float64   `json:"price"`
+	Merchant        string    `json:"merchant"`         // Merchant nickname
+	MerchantID      string    `json:"merchant_id"`      // External Merchant ID
+	PayMethods      string    `json:"pay_methods"`      // Comma separated or JSON
+	MinAmount       float64   `json:"min_amount"`       // Min limit per order
+	MaxAmount       float64   `json:"max_amount"`       // Max limit per order
+	AvailableAmount float64   `json:"available_amount"` // Surplus amount
+}
+
+// Merchant represents a crypto merchant/advertiser
+type Merchant struct {
+	ID         int64     `json:"id"`
+	Exchange   string    `json:"exchange"`
+	MerchantID string    `json:"merchant_id"` // Unique ID on the exchange
+	NickName   string    `json:"nick_name"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ForexRate represents an exchange rate record
@@ -60,6 +75,9 @@ type IRepository interface {
 	// Price operations
 	SavePricePoints(ctx context.Context, points []*PricePoint) error
 	GetPriceHistory(ctx context.Context, filter PriceQueryFilter) ([]*PricePoint, error)
+	
+	// Merchant operations
+	SaveMerchant(ctx context.Context, merchant *Merchant) error
 	
 	// Forex operations
 	SaveForexRate(ctx context.Context, rate *ForexRate) error
