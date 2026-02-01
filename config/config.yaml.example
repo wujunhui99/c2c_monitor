@@ -4,7 +4,7 @@ app:
 monitor:
   c2c_interval_minutes: 6
   forex_interval_hours: 1
-  alert_threshold_percent: 0.5
+  alert_threshold_percent: 0.1
   target_amounts: [0, 30, 50, 200, 500, 1000]
   exchanges: ["binance", "okx"]
 

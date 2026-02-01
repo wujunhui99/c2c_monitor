@@ -50,6 +50,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("app.port", 8080)
 	viper.SetDefault("monitor.c2c_interval_minutes", 3)
 	viper.SetDefault("monitor.forex_interval_hours", 1)
+	viper.SetDefault("monitor.alert_threshold_percent", 0.1)
 	viper.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
 	
 	// Environment variable support

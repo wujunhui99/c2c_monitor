@@ -54,7 +54,7 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 		return nil, fmt.Errorf("invalid side: %s", side)
 	}
 
-	url := fmt.Sprintf("https://www.okx.com/v3/c2c/tradingOrders/books?quoteCurrency=%s&baseCurrency=%s&side=%s&paymentMethod=all&userType=all&showTrade=false&showFollow=false&showAlreadyTraded=false&isHideHk=false&limit=50",
+	url := fmt.Sprintf("https://www.okx.com/v3/c2c/tradingOrders/books?quoteCurrency=%s&baseCurrency=%s&side=%s&paymentMethod=all&userType=all&showTrade=false&showFollow=false&showAlreadyTraded=false&isHideHk=false&limit=1",
 		fiat, symbol, okxSide)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -146,8 +146,8 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 		points[i].Rank = i + 1
 	}
 
-	if len(points) > 5 {
-		points = points[:5]
+	if len(points) > 1 {
+		points = points[:1]
 	}
 
 	return points, nil

@@ -194,7 +194,7 @@ async function loadConfig() {
 }
 
 async function loadChartData() {
-    if (!state.currentAmount) return;
+    if (state.currentAmount === null) return;
     
     state.chartInstance.showLoading();
     try {

@@ -56,7 +56,7 @@ func (h *Handler) GetHistory(c *gin.Context) {
 		Symbol:       "USDT",
 		Fiat:         "CNY",
 		Side:         "BUY", // Default monitoring side
-		TargetAmount: amount,
+		TargetAmount: &amount,
 		Rank:         1, // Only get best price for chart
 		StartTime:    startTime,
 		EndTime:      now,

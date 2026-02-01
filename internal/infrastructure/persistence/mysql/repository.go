@@ -92,8 +92,8 @@ func (r *MySQLRepository) GetPriceHistory(ctx context.Context, filter domain.Pri
 	if filter.Side != "" {
 		query = query.Where("side = ?", filter.Side)
 	}
-	if filter.TargetAmount > 0 {
-		query = query.Where("target_amount = ?", filter.TargetAmount)
+	if filter.TargetAmount != nil {
+		query = query.Where("target_amount = ?", *filter.TargetAmount)
 	}
 	if filter.Rank > 0 {
 		query = query.Where("`rank` = ?", filter.Rank)

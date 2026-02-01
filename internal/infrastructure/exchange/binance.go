@@ -66,7 +66,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		TransAmount: amount,
 		Order:       "",
 		Page:        1,
-		Rows:        5, // Fetch top 5 ads
+		Rows:        1, // Fetch top 1 ad (lowest price)
 		PayTypes:    []string{},
 	}
 
@@ -142,9 +142,9 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		points[i].Rank = i + 1
 	}
 
-	// Return top 5 as per default
-	if len(points) > 5 {
-		points = points[:5]
+	// Return top 1 as per default
+	if len(points) > 1 {
+		points = points[:1]
 	}
 
 	return points, nil

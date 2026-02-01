@@ -34,7 +34,7 @@ type PriceQueryFilter struct {
 	Symbol       string
 	Fiat         string
 	Side         string
-	TargetAmount float64
+	TargetAmount *float64
 	Rank         int
 	StartTime    time.Time
 	EndTime      time.Time
