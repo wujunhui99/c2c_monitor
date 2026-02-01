@@ -1,0 +1,21 @@
+app:
+  port: 8001
+
+monitor:
+  c2c_interval_minutes: 6
+  forex_interval_hours: 1
+  alert_threshold_percent: 0.5
+  target_amounts: [0, 30, 50, 200, 500, 1000]
+  exchanges: ["binance", "okx"]
+
+database:
+  dsn: "your_user:your_password@tcp(127.0.0.1:3306)/c2c_monitor?charset=utf8mb4&parseTime=True&loc=Local"
+
+notification:
+  email:
+    smtp_host: "smtp.qq.com"
+    smtp_port: 587
+    username: "your_email@example.com"
+    password: "your_smtp_password"
+    from: "your_email@example.com"
+    to: ["recipient@example.com"]

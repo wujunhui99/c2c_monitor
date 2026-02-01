@@ -1,0 +1,42 @@
+# Binaries
+bin/
+c2c_monitor
+c2c_monitor_bin
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Logs
+*.log
+logs/
+app.log
+
+# Database data
+data/mysql/
+*.db
+*.sqlite
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go dependencies
+vendor/
+
+# Environment variables / Secrets
+.env
+secret.tex
+config/config.yaml
