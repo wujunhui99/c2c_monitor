@@ -93,7 +93,6 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 	}
 
 	var points []domain.PricePoint
-	var allPoints []domain.PricePoint // Store all ads without amount filtering
 
 	for _, ad := range ads {
 		price, _ := strconv.ParseFloat(ad.Price, 64)
@@ -124,7 +123,6 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 				AvailableAmount: availableAmount,
 				PayMethods:      payMethodsStr,
 			}
-			allPoints = append(allPoints, point)
 
 			// Filter by amount (CNY)
 			if amount > 0 {
@@ -134,11 +132,6 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 			}
 			points = append(points, point)
 		}
-	}
-
-	// If no ads match the amount filter, use all ads (OKX merchants often have high minimums)
-	if len(points) == 0 && len(allPoints) > 0 {
-		points = allPoints
 	}
 
 	// Sort
