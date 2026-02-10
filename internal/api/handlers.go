@@ -137,3 +137,30 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 	h.svc.UpdateConfig(newCfg)
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
 }
+
+func (h *Handler) GetAlertStatus(c *gin.Context) {
+	states := h.svc.GetAlertStates()
+	c.JSON(http.StatusOK, gin.H{"data": states})
+}
+
+type ResetAlertRequest struct {
+	Exchange string  `json:"exchange" binding:"required"`
+	Side     string  `json:"side" binding:"required"`
+	Amount   float64 `json:"amount" binding:"required"`
+}
+
+func (h *Handler) ResetAlert(c *gin.Context) {
+	var req ResetAlertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	h.svc.ResetAlertState(req.Exchange, req.Side, req.Amount)
+	c.JSON(http.StatusOK, gin.H{"status": "reset"})
+}
+
+func (h *Handler) GetServiceStatus(c *gin.Context) {
+	status := h.svc.GetServiceStatuses()
+	c.JSON(http.StatusOK, gin.H{"data": status})
+}

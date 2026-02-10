@@ -44,6 +44,8 @@ document.addEventListener('DOMContentLoaded', () => {
             state.currentAmount = state.config.target_amounts[0];
             loadChartData();
         }
+        loadActiveAlerts();
+        loadSystemStatus();
     });
 });
 
@@ -61,7 +63,10 @@ function getElements() {
         addAmountBtn: document.getElementById('add-amount-btn'),
         saveConfigBtn: document.getElementById('save-config-btn'),
         saveStatus: document.getElementById('save-status'),
-        mainChart: document.getElementById('main-chart')
+        mainChart: document.getElementById('main-chart'),
+        alertStatusTableBody: document.querySelector('#alert-status-table tbody'),
+        systemStatusIndicator: document.getElementById('system-status-indicator'),
+        statusDetailsTooltip: document.querySelector('.status-details-tooltip')
     };
 }
 
@@ -85,6 +90,11 @@ function initTabs() {
             // Resize chart if showing dashboard
             if (target === 'dashboard' && state.chartInstance) {
                 setTimeout(() => state.chartInstance.resize(), 100);
+            }
+            
+            if (target === 'dashboard') {
+                loadActiveAlerts();
+                loadSystemStatus();
             }
         });
     });
@@ -198,7 +208,11 @@ function bindEvents() {
     }
 
     if (el.refreshBtn) {
-        el.refreshBtn.addEventListener('click', loadChartData);
+        el.refreshBtn.addEventListener('click', () => {
+            loadChartData();
+            loadActiveAlerts();
+            loadSystemStatus();
+        });
     }
 
     // Settings Controls
@@ -232,6 +246,71 @@ async function loadConfig() {
     }
 }
 
+async function loadActiveAlerts() {
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/status`);
+        if (!response.ok) throw new Error('Failed to fetch alert status');
+        const json = await response.json();
+        renderActiveAlerts(json.data);
+    } catch (error) {
+        console.error("Error loading alert status:", error);
+    }
+}
+
+async function resetAlert(key) {
+    if (!confirm('Are you sure you want to reset this dynamic threshold?')) return;
+    
+    // Key format: Exchange-Side-Amount (e.g., Binance-BUY-1000)
+    const parts = key.split('-');
+    if (parts.length !== 3) return;
+
+    const payload = {
+        exchange: parts[0],
+        side: parts[1],
+        amount: parseFloat(parts[2])
+    };
+
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (response.ok) {
+            loadActiveAlerts();
+        } else {
+            alert('Failed to reset alert');
+        }
+    } catch (error) {
+        console.error('Error resetting alert:', error);
+    }
+}
+
+function renderActiveAlerts(states) {
+    const el = getElements();
+    if (!el.alertStatusTableBody) return;
+    
+    el.alertStatusTableBody.innerHTML = '';
+    
+    if (!states || Object.keys(states).length === 0) {
+        el.alertStatusTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 15px; color: #888;">No active dynamic thresholds. (Using default percentage alerts)</td></tr>';
+        return;
+    }
+
+    for (const [key, price] of Object.entries(states)) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">${key}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>${price.toFixed(4)}</strong></td>
+            <td style="padding: 10px; border-bottom: 1px solid #eee;">
+                <button class="primary-btn" style="padding: 5px 10px; font-size: 12px; background: #dc3545;" onclick="resetAlert('${key}')">Reset</button>
+            </td>
+        `;
+        el.alertStatusTableBody.appendChild(tr);
+    }
+}
+
 async function loadChartData() {
     if (state.currentAmount === null) return;
     
@@ -249,6 +328,69 @@ async function loadChartData() {
         console.error('Error loading history:', error);
         state.chartInstance.hideLoading();
     }
+}
+
+async function loadSystemStatus() {
+    const el = getElements();
+    if (!el.systemStatusIndicator) return;
+    
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/status`);
+        if (!response.ok) throw new Error('Failed to fetch status');
+        const json = await response.json();
+        updateSystemStatusUI(json.data);
+    } catch (error) {
+        console.error("Error loading system status:", error);
+        el.systemStatusIndicator.classList.remove('ok', 'loading');
+        el.systemStatusIndicator.classList.add('error');
+        el.systemStatusIndicator.querySelector('.status-text').textContent = "Connection Error";
+    }
+}
+
+function updateSystemStatusUI(statusMap) {
+    const el = getElements();
+    if (!el.systemStatusIndicator || !el.statusDetailsTooltip) return;
+
+    // Check if any error exists
+    let allOk = true;
+    let detailsHtml = '<h4>Service Health</h4>';
+
+    // If map is empty, it means no data yet
+    if (!statusMap || Object.keys(statusMap).length === 0) {
+        el.systemStatusIndicator.className = 'status-indicator loading';
+        el.systemStatusIndicator.querySelector('.status-text').textContent = 'Waiting for data...';
+        el.statusDetailsTooltip.innerHTML = '<p style="font-size:12px; color:#666;">No status data available yet.</p>';
+        return;
+    }
+
+    for (const [key, val] of Object.entries(statusMap)) {
+        if (val.status !== 'OK') allOk = false;
+        
+        const lastCheck = new Date(val.last_check).toLocaleTimeString();
+        const statusClass = val.status === 'OK' ? 'ok' : 'error';
+        const statusText = val.status === 'OK' ? 'Operational' : 'Failed';
+        
+        detailsHtml += `
+            <div class="status-item">
+                <div>
+                    <div class="status-item-name">${key}</div>
+                    <div style="font-size:10px; color:#999;">Last check: ${lastCheck}</div>
+                    ${val.message ? `<div style="font-size:10px; color:#dc3545; margin-top:2px;">${val.message}</div>` : ''}
+                </div>
+                <div class="status-item-val ${statusClass}">${statusText}</div>
+            </div>
+        `;
+    }
+
+    if (allOk) {
+        el.systemStatusIndicator.className = 'status-indicator ok';
+        el.systemStatusIndicator.querySelector('.status-text').textContent = 'All Systems Operational';
+    } else {
+        el.systemStatusIndicator.className = 'status-indicator error';
+        el.systemStatusIndicator.querySelector('.status-text').textContent = 'System Issues Detected';
+    }
+
+    el.statusDetailsTooltip.innerHTML = detailsHtml;
 }
 
 async function saveConfig() {

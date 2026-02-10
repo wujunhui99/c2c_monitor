@@ -29,5 +29,12 @@ func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
 	r.GET("/api/config", h.GetConfig)
 	r.POST("/api/config", h.UpdateConfig)
 
+	// Alert Routes
+	r.GET("/api/alerts/status", h.GetAlertStatus)
+	r.POST("/api/alerts/reset", h.ResetAlert)
+
+	// Service Status
+	r.GET("/api/status", h.GetServiceStatus)
+
 	return r
 }

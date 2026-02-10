@@ -56,6 +56,14 @@ type PriceQueryFilter struct {
 	Limit        int
 }
 
+// ServiceStatus represents the health of a scraped service
+type ServiceStatus struct {
+	Name      string    `json:"name"`
+	Status    string    `json:"status"` // "OK" or "Error"
+	Message   string    `json:"message"`
+	LastCheck time.Time `json:"last_check"`
+}
+
 // Interfaces define the behavior of the system's dependencies
 
 type IExchange interface {

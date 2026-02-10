@@ -52,16 +52,16 @@ stop-backend:
 # 启动前端
 start-frontend:
 	@echo "启动前端服务..."
-	@pkill -f "http.server $(FRONTEND_PORT)" 2>/dev/null || true
+	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
 	@sleep 1
-	@nohup python3 -m http.server $(FRONTEND_PORT) --directory $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
+	@nohup python3 frontend/dev_server.py $(FRONTEND_PORT) $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
 	@sleep 1
-	@echo "前端启动成功 - http://localhost:$(FRONTEND_PORT)"
+	@echo "前端启动成功 - http://localhost:$(FRONTEND_PORT) (No-Cache Mode)"
 
 # 关闭前端
 stop-frontend:
 	@echo "关闭前端服务..."
-	@pkill -f "http.server $(FRONTEND_PORT)" 2>/dev/null || true
+	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
 	@echo "前端已关闭"
 
 # 启动所有服务

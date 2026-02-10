@@ -11,7 +11,16 @@
 
 <div class="container">
     <header>
-        <h1>C2C Price Monitor</h1>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h1>C2C Price Monitor</h1>
+            <div id="system-status-indicator" class="status-indicator loading">
+                <span class="status-dot"></span>
+                <span class="status-text">Checking System Status...</span>
+                <div class="status-details-tooltip">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
         <div class="tabs">
             <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
             <button class="tab-btn" data-tab="settings">Settings</button>
@@ -41,6 +50,27 @@
         </div>
 
         <div id="main-chart" class="chart-container"></div>
+        
+        <!-- Active Alerts Section -->
+        <div class="alert-status-section" style="margin-top: 30px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <h3>Active Dynamic Thresholds</h3>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                When an alert is triggered, the threshold switches to "Lower than Previous Trigger Price". 
+                Resetting an alert reverts it to the standard percentage spread threshold.
+            </p>
+            <table id="alert-status-table" style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8f9fa; text-align: left;">
+                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Market (Exchange-Side-Amount)</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Trigger Price (CNY)</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <!-- Settings Tab -->
