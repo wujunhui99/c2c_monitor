@@ -56,12 +56,12 @@ start-frontend:
 		echo "复制默认前端配置: frontend/js/config.js"; \
 		cp frontend/js/config.js.example frontend/js/config.js; \
 	fi
-	@# 优先通过端口关闭
-	@lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null || true
+	@# 强制清理端口，并等待 1 秒确保释放
+	@lsof -ti :$(FRONTEND_PORT) | xargs kill -9 2>/dev/null || true
 	@pkill -f "python3.*dev_server.[p]y" 2>/dev/null || true
 	@sleep 1
 	@nohup python3 frontend/dev_server.py $(FRONTEND_PORT) $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
-	@sleep 1
+	@sleep 2
 	@echo "前端启动成功 - http://localhost:$(FRONTEND_PORT) (No-Cache Mode)"
 
 # 关闭前端
