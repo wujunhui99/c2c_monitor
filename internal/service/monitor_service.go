@@ -209,10 +209,30 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 		for _, amount := range s.cfg.TargetAmounts {
 			// Fetch prices
 			// Assuming we monitor BUY prices (User Buys USDT) for now
-			prices, err := exchange.GetTopPrices(ctx, "USDT", "CNY", "BUY", amount)
+			var prices []domain.PricePoint
+			var err error
+			maxRetries := 3
+			retryInterval := 90 * time.Second
+
+			for attempt := 0; attempt <= maxRetries; attempt++ {
+				prices, err = exchange.GetTopPrices(ctx, "USDT", "CNY", "BUY", amount)
+				if err == nil {
+					break
+				}
+
+				if attempt < maxRetries {
+					log.Printf("⚠️ [%s] Failed to fetch prices for amount %.0f (Attempt %d/%d): %v. Retrying in %v...", name, amount, attempt+1, maxRetries, err, retryInterval)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(retryInterval):
+						continue
+					}
+				}
+			}
 			
 			if err != nil {
-				log.Printf("❌ [%s] Failed to fetch prices for amount %.0f: %v", name, amount, err)
+				log.Printf("❌ [%s] Failed to fetch prices for amount %.0f after %d retries: %v", name, amount, maxRetries, err)
 				s.updateServiceStatus(name, err)
 				continue
 			}
