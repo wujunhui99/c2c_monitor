@@ -52,6 +52,10 @@ stop-backend:
 # 启动前端
 start-frontend:
 	@echo "启动前端服务..."
+	@if [ ! -f frontend/js/config.js ]; then \
+		echo "复制默认前端配置: frontend/js/config.js"; \
+		cp frontend/js/config.js.example frontend/js/config.js; \
+	fi
 	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
 	@sleep 1
 	@nohup python3 frontend/dev_server.py $(FRONTEND_PORT) $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
@@ -62,6 +66,8 @@ start-frontend:
 stop-frontend:
 	@echo "关闭前端服务..."
 	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
+	@# 尝试通过端口关闭 (适用于 macOS/Linux)
+	@lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null || true
 	@echo "前端已关闭"
 
 # 启动所有服务
