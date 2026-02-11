@@ -34,7 +34,7 @@ func NewMonitorService(
 	forex domain.IForex,
 	notifier domain.INotifier,
 ) *MonitorService {
-	return &MonitorService{
+	ms := &MonitorService{
 		cfg:                cfg,
 		repo:               repo,
 		exchanges:          exchanges,
@@ -45,6 +45,24 @@ func NewMonitorService(
 		triggeredLowPrices: make(map[string]float64),
 		serviceStatus:      make(map[string]*domain.ServiceStatus),
 	}
+
+	// Initialize status for exchanges to ensure they appear in frontend
+	for _, name := range cfg.Exchanges {
+		ms.serviceStatus[name] = &domain.ServiceStatus{
+			Name:      name,
+			Status:    "Pending",
+			Message:   "Initializing...",
+			LastCheck: time.Now(),
+		}
+	}
+	ms.serviceStatus["Forex (OpenER)"] = &domain.ServiceStatus{
+		Name:      "Forex (OpenER)",
+		Status:    "Pending",
+		Message:   "Initializing...",
+		LastCheck: time.Now(),
+	}
+
+	return ms
 }
 
 func (s *MonitorService) updateServiceStatus(name string, err error) {
@@ -156,9 +174,9 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 	
 	// Update Status
 	if err != nil {
-		s.updateServiceStatus("Forex (Yahoo)", err)
+		s.updateServiceStatus("Forex (OpenER)", err)
 	} else {
-		s.updateServiceStatus("Forex (Yahoo)", nil)
+		s.updateServiceStatus("Forex (OpenER)", nil)
 	}
 
 	if err != nil {
@@ -178,7 +196,7 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 	// Save to DB
 	err = s.repo.SaveForexRate(ctx, &domain.ForexRate{
 		CreatedAt: time.Now(),
-		Source:    "Yahoo",
+		Source:    "OpenER",
 		Pair:      "USDCNY",
 		Rate:      rate,
 	})
