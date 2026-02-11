@@ -46,7 +46,7 @@ start-backend: build
 # 关闭后端
 stop-backend:
 	@echo "关闭后端服务..."
-	@pkill -f "./$(BINARY_NAME)" 2>/dev/null || true
+	@pkill -x "$(BINARY_NAME)" 2>/dev/null || true
 	@echo "后端已关闭"
 
 # 启动前端
@@ -56,7 +56,8 @@ start-frontend:
 		echo "复制默认前端配置: frontend/js/config.js"; \
 		cp frontend/js/config.js.example frontend/js/config.js; \
 	fi
-	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
+	@# 优先通过端口关闭，避免 pkill -f 误杀
+	@lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null || true
 	@sleep 1
 	@nohup python3 frontend/dev_server.py $(FRONTEND_PORT) $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
 	@sleep 1
@@ -65,9 +66,9 @@ start-frontend:
 # 关闭前端
 stop-frontend:
 	@echo "关闭前端服务..."
-	@pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
-	@# 尝试通过端口关闭 (适用于 macOS/Linux)
+	@# 优先通过端口关闭，这是最准确的方式
 	@lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null || true
+	@pkill -f "python3.*dev_server.py" 2>/dev/null || true
 	@echo "前端已关闭"
 
 # 启动所有服务
