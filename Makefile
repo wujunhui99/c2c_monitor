@@ -27,20 +27,27 @@ help:
 # 编译后端
 build:
 	@echo "编译后端..."
-	go build -o $(BINARY_NAME) ./cmd/monitor
+	@command -v go >/dev/null 2>&1 || { \
+		echo "错误: 未找到 go 命令，请先安装 Go 并配置 PATH"; \
+		exit 1; \
+	}
+	@go build -o $(BINARY_NAME) ./cmd/monitor
 	@echo "编译完成"
 
 # 启动后端
 start-backend: build
+	@mkdir -p logs
 	@echo "启动后端服务..."
 	@pkill -x "$(BINARY_NAME)" 2>/dev/null || true
 	@sleep 1
 	@nohup ./$(BINARY_NAME) > logs/backend.log 2>&1 &
 	@sleep 2
-	@if curl -s http://localhost:$(BACKEND_PORT)/api/config > /dev/null; then \
+	@if curl -fsS http://localhost:$(BACKEND_PORT)/api/config > /dev/null; then \
 		echo "后端启动成功 - http://localhost:$(BACKEND_PORT)"; \
 	else \
 		echo "后端启动失败，请检查日志: logs/backend.log"; \
+		tail -n 40 logs/backend.log || true; \
+		exit 1; \
 	fi
 
 # 关闭后端
@@ -51,25 +58,34 @@ stop-backend:
 
 # 启动前端
 start-frontend:
+	@mkdir -p logs
 	@echo "启动前端服务..."
+	@command -v python3 >/dev/null 2>&1 || { \
+		echo "错误: 未找到 python3"; \
+		exit 1; \
+	}
 	@if [ ! -f frontend/js/config.js ]; then \
 		echo "复制默认前端配置: frontend/js/config.js"; \
 		cp frontend/js/config.js.example frontend/js/config.js; \
 	fi
-	@# 强制清理端口，并等待 1 秒确保释放
-	@lsof -ti :$(FRONTEND_PORT) | xargs kill -9 2>/dev/null || true
-	@pkill -f "python3.*dev_server.[p]y" 2>/dev/null || true
+	@# 清理占用端口的旧进程，并等待 1 秒确保释放
+	@pids=$$(lsof -ti :$(FRONTEND_PORT) 2>/dev/null); [ -n "$$pids" ] && kill $$pids || true
 	@sleep 1
 	@nohup python3 frontend/dev_server.py $(FRONTEND_PORT) $(FRONTEND_DIR) > logs/frontend.log 2>&1 &
 	@sleep 2
-	@echo "前端启动成功 - http://localhost:$(FRONTEND_PORT) (No-Cache Mode)"
+	@if curl -fsS http://localhost:$(FRONTEND_PORT)/ > /dev/null; then \
+		echo "前端启动成功 - http://localhost:$(FRONTEND_PORT) (No-Cache Mode)"; \
+	else \
+		echo "前端启动失败，请检查日志: logs/frontend.log"; \
+		tail -n 40 logs/frontend.log || true; \
+		exit 1; \
+	fi
 
 # 关闭前端
 stop-frontend:
 	@echo "关闭前端服务..."
-	@# 优先通过端口关闭，这是最准确的方式
-	@lsof -ti :$(FRONTEND_PORT) | xargs kill 2>/dev/null || true
-	@pkill -f "python3.*dev_server.[p]y" 2>/dev/null || true
+	@# 通过端口关闭前端进程
+	@pids=$$(lsof -ti :$(FRONTEND_PORT) 2>/dev/null); [ -n "$$pids" ] && kill $$pids || true
 	@echo "前端已关闭"
 
 # 启动所有服务
@@ -102,6 +118,6 @@ logs:
 status:
 	@echo "服务状态:"
 	@echo -n "  后端: "
-	@if pgrep -f "./$(BINARY_NAME)" > /dev/null; then echo "运行中"; else echo "已停止"; fi
+	@if lsof -ti :$(BACKEND_PORT) > /dev/null 2>&1; then echo "运行中"; else echo "已停止"; fi
 	@echo -n "  前端: "
-	@if pgrep -f "http.server $(FRONTEND_PORT)" > /dev/null; then echo "运行中"; else echo "已停止"; fi
+	@if lsof -ti :$(FRONTEND_PORT) > /dev/null 2>&1; then echo "运行中"; else echo "已停止"; fi
