@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"c2c_monitor/config"
 	"c2c_monitor/internal/domain"
 	"c2c_monitor/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -24,12 +24,12 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	// Params: range (1d, 7d), amount (required), exchange (optional)
 	rangeStr := c.Query("range")
 	amountStr := c.Query("amount")
-	
+
 	if amountStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "amount parameter is required"})
 		return
 	}
-	
+
 	amount, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount"})
@@ -39,13 +39,20 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	// Calculate start time
 	now := time.Now()
 	var startTime time.Time
+	granularity := domain.HistoryGranularityRaw
 	switch rangeStr {
 	case "1d":
 		startTime = now.Add(-24 * time.Hour)
 	case "7d":
 		startTime = now.Add(-7 * 24 * time.Hour)
+		granularity = domain.HistoryGranularityHour
 	case "30d":
 		startTime = now.Add(-30 * 24 * time.Hour)
+		granularity = domain.HistoryGranularityHour
+	case "all":
+		// Zero time means no lower bound in repository filters.
+		startTime = time.Time{}
+		granularity = domain.HistoryGranularityDay
 	default:
 		startTime = now.Add(-24 * time.Hour) // Default 1d
 	}
@@ -62,10 +69,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 		EndTime:      now,
 		Limit:        5000, // Safety limit
 	}
-	
+
 	// We might want multiple exchanges. The PRD says "Line 1 (Binance), Line 2 (Gate)".
 	// So we need to query for each exchange.
-	
+
 	resp := gin.H{
 		"forex":   []gin.H{},
 		"binance": []gin.H{},
@@ -73,7 +80,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	}
 
 	// 1. Forex
-	forexHistory, err := h.svc.GetForexHistory(c.Request.Context(), "USDCNY", startTime, now)
+	forexHistory, err := h.svc.GetForexHistoryByGranularity(c.Request.Context(), "USDCNY", startTime, now, granularity)
+	if granularity != domain.HistoryGranularityRaw && (err != nil || len(forexHistory) == 0) {
+		forexHistory, err = h.svc.GetForexHistory(c.Request.Context(), "USDCNY", startTime, now)
+	}
 	if err == nil {
 		var list []gin.H
 		for _, f := range forexHistory {
@@ -84,7 +94,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 
 	// 2. Binance
 	filter.Exchange = "Binance"
-	binancePrices, err := h.svc.GetPriceHistory(c.Request.Context(), filter)
+	binancePrices, err := h.svc.GetPriceHistoryByGranularity(c.Request.Context(), filter, granularity)
+	if granularity != domain.HistoryGranularityRaw && (err != nil || len(binancePrices) == 0) {
+		binancePrices, err = h.svc.GetPriceHistory(c.Request.Context(), filter)
+	}
 	if err == nil {
 		var list []gin.H
 		for _, p := range binancePrices {
@@ -103,7 +116,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 
 	// 3. OKX
 	filter.Exchange = "OKX"
-	okxPrices, err := h.svc.GetPriceHistory(c.Request.Context(), filter)
+	okxPrices, err := h.svc.GetPriceHistoryByGranularity(c.Request.Context(), filter, granularity)
+	if granularity != domain.HistoryGranularityRaw && (err != nil || len(okxPrices) == 0) {
+		okxPrices, err = h.svc.GetPriceHistory(c.Request.Context(), filter)
+	}
 	if err == nil {
 		var list []gin.H
 		for _, p := range okxPrices {
@@ -133,7 +149,7 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	h.svc.UpdateConfig(newCfg)
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
 }
@@ -156,7 +172,10 @@ func (h *Handler) ResetAlert(c *gin.Context) {
 		return
 	}
 
-	h.svc.ResetAlertState(req.Exchange, req.Side, req.Amount)
+	if err := h.svc.ResetAlertState(c.Request.Context(), req.Exchange, req.Side, req.Amount); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset alert state"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "reset"})
 }
 

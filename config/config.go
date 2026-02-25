@@ -19,11 +19,11 @@ type AppConfig struct {
 }
 
 type MonitorConfig struct {
-	C2CIntervalMinutes    int       `mapstructure:"c2c_interval_minutes"`
-	ForexIntervalHours    int       `mapstructure:"forex_interval_hours"`
-	AlertThresholdPercent float64   `mapstructure:"alert_threshold_percent"`
-	TargetAmounts         []float64 `mapstructure:"target_amounts"`
-	Exchanges             []string  `mapstructure:"exchanges"`
+	C2CIntervalMinutes    int       `mapstructure:"c2c_interval_minutes" json:"c2c_interval_minutes"`
+	ForexIntervalHours    int       `mapstructure:"forex_interval_hours" json:"forex_interval_hours"`
+	AlertThresholdPercent float64   `mapstructure:"alert_threshold_percent" json:"alert_threshold_percent"`
+	TargetAmounts         []float64 `mapstructure:"target_amounts" json:"target_amounts"`
+	Exchanges             []string  `mapstructure:"exchanges" json:"exchanges"`
 }
 
 type DatabaseConfig struct {

@@ -36,6 +36,7 @@ Thumbs.db
 
 # Go dependencies
 vendor/
+.gocache/
 
 # Environment variables / Secrets
 .env

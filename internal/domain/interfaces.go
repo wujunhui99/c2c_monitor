@@ -56,12 +56,32 @@ type PriceQueryFilter struct {
 	Limit        int
 }
 
+type HistoryGranularity string
+
+const (
+	HistoryGranularityRaw  HistoryGranularity = "raw"
+	HistoryGranularityHour HistoryGranularity = "hour"
+	HistoryGranularityDay  HistoryGranularity = "day"
+)
+
 // ServiceStatus represents the health of a scraped service
 type ServiceStatus struct {
 	Name      string    `json:"name"`
 	Status    string    `json:"status"` // "OK" or "Error"
 	Message   string    `json:"message"`
 	LastCheck time.Time `json:"last_check"`
+}
+
+// AlertState stores dynamic alert thresholds, allowing recovery after restart.
+type AlertState struct {
+	ID           int64     `json:"id"`
+	Exchange     string    `json:"exchange"`
+	Side         string    `json:"side"`
+	TargetAmount float64   `json:"target_amount"`
+	TriggerPrice float64   `json:"trigger_price"`
+	LastAlertAt  time.Time `json:"last_alert_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Interfaces define the behavior of the system's dependencies
@@ -83,12 +103,19 @@ type IRepository interface {
 	// Price operations
 	SavePricePoints(ctx context.Context, points []*PricePoint) error
 	GetPriceHistory(ctx context.Context, filter PriceQueryFilter) ([]*PricePoint, error)
-	
+	GetPriceHistoryByGranularity(ctx context.Context, filter PriceQueryFilter, granularity HistoryGranularity) ([]*PricePoint, error)
+
 	// Merchant operations
 	SaveMerchant(ctx context.Context, merchant *Merchant) error
-	
+
 	// Forex operations
 	SaveForexRate(ctx context.Context, rate *ForexRate) error
 	GetLatestForexRate(ctx context.Context, pair string) (*ForexRate, error)
 	GetForexHistory(ctx context.Context, pair string, start, end time.Time) ([]*ForexRate, error)
+	GetForexHistoryByGranularity(ctx context.Context, pair string, start, end time.Time, granularity HistoryGranularity) ([]*ForexRate, error)
+
+	// Alert state operations
+	UpsertAlertState(ctx context.Context, state *AlertState) error
+	DeleteAlertState(ctx context.Context, exchange, side string, amount float64) error
+	GetAlertStates(ctx context.Context) ([]*AlertState, error)
 }
