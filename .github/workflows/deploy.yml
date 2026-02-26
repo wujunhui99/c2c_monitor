@@ -43,10 +43,6 @@ jobs:
             cd "$APP_DIR"
             git pull --rebase --autostash origin main
 
-            # Stop legacy non-container processes to avoid port conflicts.
-            pkill -x c2c_monitor 2>/dev/null || true
-            pkill -f "python3 frontend/dev_server.py" 2>/dev/null || true
-
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             if docker compose version >/dev/null 2>&1; then
