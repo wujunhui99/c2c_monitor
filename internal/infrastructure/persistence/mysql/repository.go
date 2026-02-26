@@ -34,17 +34,24 @@ func (PricePointDAO) TableName() string {
 
 // C2CPriceHourlyDAO stores hourly aggregated lowest prices.
 type C2CPriceHourlyDAO struct {
-	ID           int64     `gorm:"primaryKey;autoIncrement"`
-	BucketTime   time.Time `gorm:"uniqueIndex:idx_c2c_hour,priority:1;index"`
-	Exchange     string    `gorm:"type:varchar(32);uniqueIndex:idx_c2c_hour,priority:2;index"`
-	Symbol       string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:3"`
-	Fiat         string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:4"`
-	Side         string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:5;index"`
-	TargetAmount float64   `gorm:"uniqueIndex:idx_c2c_hour,priority:6;index"`
-	Rank         int       `gorm:"uniqueIndex:idx_c2c_hour,priority:7;index"`
-	Price        float64   `gorm:"type:decimal(18,8)"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              int64     `gorm:"primaryKey;autoIncrement"`
+	BucketTime      time.Time `gorm:"uniqueIndex:idx_c2c_hour,priority:1;index"`
+	Exchange        string    `gorm:"type:varchar(32);uniqueIndex:idx_c2c_hour,priority:2;index"`
+	Symbol          string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:3"`
+	Fiat            string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:4"`
+	Side            string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_hour,priority:5;index"`
+	TargetAmount    float64   `gorm:"uniqueIndex:idx_c2c_hour,priority:6;index"`
+	Rank            int       `gorm:"uniqueIndex:idx_c2c_hour,priority:7;index"`
+	RawID           int64     `gorm:"index"`
+	Price           float64   `gorm:"type:decimal(18,8)"`
+	Merchant        string    `gorm:"type:varchar(128)"`
+	MerchantID      string    `gorm:"type:varchar(64);index"`
+	PayMethods      string    `gorm:"type:text"`
+	MinAmount       float64   `gorm:"type:decimal(18,8)"`
+	MaxAmount       float64   `gorm:"type:decimal(18,8)"`
+	AvailableAmount float64   `gorm:"type:decimal(18,8)"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (C2CPriceHourlyDAO) TableName() string {
@@ -53,17 +60,24 @@ func (C2CPriceHourlyDAO) TableName() string {
 
 // C2CPriceDailyDAO stores daily aggregated lowest prices.
 type C2CPriceDailyDAO struct {
-	ID           int64     `gorm:"primaryKey;autoIncrement"`
-	BucketTime   time.Time `gorm:"uniqueIndex:idx_c2c_day,priority:1;index"`
-	Exchange     string    `gorm:"type:varchar(32);uniqueIndex:idx_c2c_day,priority:2;index"`
-	Symbol       string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:3"`
-	Fiat         string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:4"`
-	Side         string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:5;index"`
-	TargetAmount float64   `gorm:"uniqueIndex:idx_c2c_day,priority:6;index"`
-	Rank         int       `gorm:"uniqueIndex:idx_c2c_day,priority:7;index"`
-	Price        float64   `gorm:"type:decimal(18,8)"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              int64     `gorm:"primaryKey;autoIncrement"`
+	BucketTime      time.Time `gorm:"uniqueIndex:idx_c2c_day,priority:1;index"`
+	Exchange        string    `gorm:"type:varchar(32);uniqueIndex:idx_c2c_day,priority:2;index"`
+	Symbol          string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:3"`
+	Fiat            string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:4"`
+	Side            string    `gorm:"type:varchar(10);uniqueIndex:idx_c2c_day,priority:5;index"`
+	TargetAmount    float64   `gorm:"uniqueIndex:idx_c2c_day,priority:6;index"`
+	Rank            int       `gorm:"uniqueIndex:idx_c2c_day,priority:7;index"`
+	RawID           int64     `gorm:"index"`
+	Price           float64   `gorm:"type:decimal(18,8)"`
+	Merchant        string    `gorm:"type:varchar(128)"`
+	MerchantID      string    `gorm:"type:varchar(64);index"`
+	PayMethods      string    `gorm:"type:text"`
+	MinAmount       float64   `gorm:"type:decimal(18,8)"`
+	MaxAmount       float64   `gorm:"type:decimal(18,8)"`
+	AvailableAmount float64   `gorm:"type:decimal(18,8)"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (C2CPriceDailyDAO) TableName() string {
@@ -230,11 +244,12 @@ func (r *MySQLRepository) SavePricePoints(ctx context.Context, points []*domain.
 			return err
 		}
 
-		for _, p := range points {
-			if err := upsertC2CAggregate(tx, p, domain.HistoryGranularityHour); err != nil {
+		for i, p := range points {
+			rawID := daos[i].ID
+			if err := upsertC2CAggregate(tx, p, rawID, domain.HistoryGranularityHour); err != nil {
 				return err
 			}
-			if err := upsertC2CAggregate(tx, p, domain.HistoryGranularityDay); err != nil {
+			if err := upsertC2CAggregate(tx, p, rawID, domain.HistoryGranularityDay); err != nil {
 				return err
 			}
 		}
@@ -243,20 +258,27 @@ func (r *MySQLRepository) SavePricePoints(ctx context.Context, points []*domain.
 	})
 }
 
-func upsertC2CAggregate(tx *gorm.DB, p *domain.PricePoint, granularity domain.HistoryGranularity) error {
+func upsertC2CAggregate(tx *gorm.DB, p *domain.PricePoint, rawID int64, granularity domain.HistoryGranularity) error {
 	bucket := bucketTime(p.CreatedAt, granularity)
 	switch granularity {
 	case domain.HistoryGranularityHour:
 		dao := &C2CPriceHourlyDAO{
-			BucketTime:   bucket,
-			Exchange:     p.Exchange,
-			Symbol:       p.Symbol,
-			Fiat:         p.Fiat,
-			Side:         p.Side,
-			TargetAmount: p.TargetAmount,
-			Rank:         p.Rank,
-			Price:        p.Price,
-			CreatedAt:    bucket,
+			BucketTime:      bucket,
+			Exchange:        p.Exchange,
+			Symbol:          p.Symbol,
+			Fiat:            p.Fiat,
+			Side:            p.Side,
+			TargetAmount:    p.TargetAmount,
+			Rank:            p.Rank,
+			RawID:           rawID,
+			Price:           p.Price,
+			Merchant:        p.Merchant,
+			MerchantID:      p.MerchantID,
+			PayMethods:      p.PayMethods,
+			MinAmount:       p.MinAmount,
+			MaxAmount:       p.MaxAmount,
+			AvailableAmount: p.AvailableAmount,
+			CreatedAt:       bucket,
 		}
 		return tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{
@@ -268,22 +290,26 @@ func upsertC2CAggregate(tx *gorm.DB, p *domain.PricePoint, granularity domain.Hi
 				{Name: "target_amount"},
 				{Name: "rank"},
 			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"price":      gorm.Expr("LEAST(price, VALUES(price))"),
-				"updated_at": gorm.Expr("NOW()"),
-			}),
+			DoUpdates: clause.Assignments(lowestPriceSnapshotAssignments()),
 		}).Create(dao).Error
 	case domain.HistoryGranularityDay:
 		dao := &C2CPriceDailyDAO{
-			BucketTime:   bucket,
-			Exchange:     p.Exchange,
-			Symbol:       p.Symbol,
-			Fiat:         p.Fiat,
-			Side:         p.Side,
-			TargetAmount: p.TargetAmount,
-			Rank:         p.Rank,
-			Price:        p.Price,
-			CreatedAt:    bucket,
+			BucketTime:      bucket,
+			Exchange:        p.Exchange,
+			Symbol:          p.Symbol,
+			Fiat:            p.Fiat,
+			Side:            p.Side,
+			TargetAmount:    p.TargetAmount,
+			Rank:            p.Rank,
+			RawID:           rawID,
+			Price:           p.Price,
+			Merchant:        p.Merchant,
+			MerchantID:      p.MerchantID,
+			PayMethods:      p.PayMethods,
+			MinAmount:       p.MinAmount,
+			MaxAmount:       p.MaxAmount,
+			AvailableAmount: p.AvailableAmount,
+			CreatedAt:       bucket,
 		}
 		return tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{
@@ -295,13 +321,24 @@ func upsertC2CAggregate(tx *gorm.DB, p *domain.PricePoint, granularity domain.Hi
 				{Name: "target_amount"},
 				{Name: "rank"},
 			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"price":      gorm.Expr("LEAST(price, VALUES(price))"),
-				"updated_at": gorm.Expr("NOW()"),
-			}),
+			DoUpdates: clause.Assignments(lowestPriceSnapshotAssignments()),
 		}).Create(dao).Error
 	default:
 		return nil
+	}
+}
+
+func lowestPriceSnapshotAssignments() map[string]interface{} {
+	return map[string]interface{}{
+		"price":            gorm.Expr("LEAST(price, VALUES(price))"),
+		"raw_id":           gorm.Expr("IF(VALUES(price) <= price, VALUES(raw_id), raw_id)"),
+		"merchant":         gorm.Expr("IF(VALUES(price) <= price, VALUES(merchant), merchant)"),
+		"merchant_id":      gorm.Expr("IF(VALUES(price) <= price, VALUES(merchant_id), merchant_id)"),
+		"pay_methods":      gorm.Expr("IF(VALUES(price) <= price, VALUES(pay_methods), pay_methods)"),
+		"min_amount":       gorm.Expr("IF(VALUES(price) <= price, VALUES(min_amount), min_amount)"),
+		"max_amount":       gorm.Expr("IF(VALUES(price) <= price, VALUES(max_amount), max_amount)"),
+		"available_amount": gorm.Expr("IF(VALUES(price) <= price, VALUES(available_amount), available_amount)"),
+		"updated_at":       gorm.Expr("NOW()"),
 	}
 }
 
@@ -331,6 +368,7 @@ func (r *MySQLRepository) getPriceHistoryFromTable(ctx context.Context, filter d
 		MinAmount       float64   `gorm:"column:min_amount"`
 		MaxAmount       float64   `gorm:"column:max_amount"`
 		AvailableAmount float64   `gorm:"column:available_amount"`
+		Merchant        string    `gorm:"column:merchant"`
 		NickName        string    `gorm:"column:nick_name"`
 	}
 
@@ -381,6 +419,11 @@ func (r *MySQLRepository) getPriceHistoryFromTable(ctx context.Context, filter d
 
 	results := make([]*domain.PricePoint, len(rows))
 	for i, row := range rows {
+		merchant := row.Merchant
+		if merchant == "" {
+			merchant = row.NickName
+		}
+
 		results[i] = &domain.PricePoint{
 			ID:              row.ID,
 			CreatedAt:       row.CreatedAt,
@@ -396,7 +439,7 @@ func (r *MySQLRepository) getPriceHistoryFromTable(ctx context.Context, filter d
 			MinAmount:       row.MinAmount,
 			MaxAmount:       row.MaxAmount,
 			AvailableAmount: row.AvailableAmount,
-			Merchant:        row.NickName,
+			Merchant:        merchant,
 		}
 	}
 	return results, nil
