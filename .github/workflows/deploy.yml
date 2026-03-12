@@ -21,6 +21,20 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Upload compose assets
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ vars.DEPLOY_PORT != '' && vars.DEPLOY_PORT || '22' }}
+          source: "deploy/compose/docker-compose.yml,deploy/compose/frontend-config.js,deploy/compose/nginx.conf,deploy/compose/config.yaml.example"
+          target: "/tmp/c2c-monitor-deploy-compose"
+          strip_components: 2
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -37,11 +51,21 @@ jobs:
           script: |
             set -euo pipefail
 
-            APP_DIR="/home/ubuntu/code/go_code/c2c_monitor"
+            APP_DIR="$HOME/c2c_monitor"
             COMPOSE_DIR="$APP_DIR/deploy/compose"
+            TMP_COMPOSE_DIR="/tmp/c2c-monitor-deploy-compose"
 
-            cd "$APP_DIR"
-            git pull --rebase --autostash origin main
+            mkdir -p "$COMPOSE_DIR"
+            cp "$TMP_COMPOSE_DIR/docker-compose.yml" "$COMPOSE_DIR/docker-compose.yml"
+            cp "$TMP_COMPOSE_DIR/frontend-config.js" "$COMPOSE_DIR/frontend-config.js"
+            cp "$TMP_COMPOSE_DIR/nginx.conf" "$COMPOSE_DIR/nginx.conf"
+            cp "$TMP_COMPOSE_DIR/config.yaml.example" "$COMPOSE_DIR/config.yaml.example"
+            rm -rf "$TMP_COMPOSE_DIR"
+
+            if [ ! -f "$COMPOSE_DIR/config.yaml" ]; then
+              echo "Missing $COMPOSE_DIR/config.yaml on server. Create it once before deploying."
+              exit 1
+            fi
 
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
