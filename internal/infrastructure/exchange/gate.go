@@ -53,6 +53,13 @@ type GateAd struct {
 	HidePayment string `json:"hide_payment"`
 }
 
+var gateCNYPayMethodCodeMap = map[string]string{
+	"1":   "微信",
+	"2":   "银行卡",
+	"255": "支付宝",
+	"339": "QQ 钱包",
+}
+
 func (a *GateAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string, amount float64) ([]domain.PricePoint, error) {
 	pushType, err := gatePushType(side)
 	if err != nil {
@@ -214,7 +221,7 @@ func gateAdToPoint(ad GateAd, symbol, fiat, side string, targetAmount float64, n
 		MinAmount:       minFiat,
 		MaxAmount:       maxFiat,
 		AvailableAmount: availableAmount,
-		PayMethods:      normalizeGatePayMethods(ad.PayTypeNum, ad.HidePayment),
+		PayMethods:      normalizeGatePayMethods(ad.PayTypeNum),
 	}, true
 }
 
@@ -263,19 +270,29 @@ func parseGateFloat(raw string) (float64, error) {
 	return strconv.ParseFloat(cleaned, 64)
 }
 
-func normalizeGatePayMethods(payTypeNum, hidePayment string) string {
-	if strings.TrimSpace(hidePayment) == "1" {
-		return "Hidden"
+func normalizeGatePayMethods(payTypeNum string) string {
+	trimmed := strings.TrimSpace(payTypeNum)
+	if trimmed == "" || trimmed == "0" {
+		return ""
 	}
 
-	switch strings.TrimSpace(payTypeNum) {
-	case "", "0":
-		return ""
-	case "255":
-		return "Multiple"
-	default:
-		return strings.ReplaceAll(payTypeNum, ",", ", ")
+	codes := strings.Split(trimmed, ",")
+	methods := make([]string, 0, len(codes))
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+
+		if name, ok := gateCNYPayMethodCodeMap[code]; ok {
+			methods = append(methods, name)
+			continue
+		}
+
+		methods = append(methods, code)
 	}
+
+	return domain.JoinNormalizedPayMethods(methods)
 }
 
 func gateResponseSnippet(payload []byte) string {

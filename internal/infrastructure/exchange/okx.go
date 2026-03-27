@@ -100,11 +100,7 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 		maxAmount, _ := strconv.ParseFloat(ad.QuoteMaxAmountPerOrder, 64)
 		availableAmount, _ := strconv.ParseFloat(ad.AvailableAmount, 64)
 
-		payMethodsStr := ""
-		if len(ad.PaymentMethods) > 0 {
-			payMethodsStr = fmt.Sprintf("%v", ad.PaymentMethods)
-			payMethodsStr = payMethodsStr[1 : len(payMethodsStr)-1]
-		}
+		payMethodsStr := domain.JoinNormalizedPayMethods(ad.PaymentMethods)
 
 		if price > 0 {
 			point := domain.PricePoint{

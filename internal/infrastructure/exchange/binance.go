@@ -24,29 +24,29 @@ func NewBinanceAdapter() *BinanceAdapter {
 
 // BinanceRequest payload for search
 type BinanceRequest struct {
-	Asset         string  `json:"asset"`
-	Fiat          string  `json:"fiat"`
-	TradeType     string  `json:"tradeType"` // "BUY" or "SELL" (from user perspective)
-	TransAmount   float64 `json:"transAmount,omitempty"`
-	Order         string  `json:"order"` // "price"
-	Page          int     `json:"page"`
-	Rows          int     `json:"rows"`
-	PayTypes      []string `json:"payTypes"` // []
+	Asset       string   `json:"asset"`
+	Fiat        string   `json:"fiat"`
+	TradeType   string   `json:"tradeType"` // "BUY" or "SELL" (from user perspective)
+	TransAmount float64  `json:"transAmount,omitempty"`
+	Order       string   `json:"order"` // "price"
+	Page        int      `json:"page"`
+	Rows        int      `json:"rows"`
+	PayTypes    []string `json:"payTypes"` // []
 }
 
 // BinanceResponse minimal struct
 type BinanceResponse struct {
-	Code          string `json:"code"`
-	Message       string `json:"message"`
-	Data          []struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Data    []struct {
 		Adv struct {
-			AdvNo                 string `json:"advNo"`
-			Price                 string `json:"price"`
-			TradableQuantity      string `json:"tradableQuantity"`
-			SurplusAmount         string `json:"surplusAmount"`
-			MinSingleTransAmount  string `json:"minSingleTransAmount"`
-			MaxSingleTransAmount  string `json:"maxSingleTransAmount"`
-			TradeMethods          []struct {
+			AdvNo                string `json:"advNo"`
+			Price                string `json:"price"`
+			TradableQuantity     string `json:"tradableQuantity"`
+			SurplusAmount        string `json:"surplusAmount"`
+			MinSingleTransAmount string `json:"minSingleTransAmount"`
+			MaxSingleTransAmount string `json:"maxSingleTransAmount"`
+			TradeMethods         []struct {
 				TradeMethodName string `json:"tradeMethodName"`
 			} `json:"tradeMethods"`
 		} `json:"adv"`
@@ -63,7 +63,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 	// Wait, usually if I want to BUY, the advertiser is SELLING.
 	// In Binance P2P Web API:
 	// If I click "Buy", the payload sends "tradeType": "BUY".
-	
+
 	url := "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
 
 	payload := BinanceRequest{
@@ -112,11 +112,11 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 	}
 
 	var points []domain.PricePoint
-	
+
 	for i, item := range data.Data {
 		var price float64
 		fmt.Sscanf(item.Adv.Price, "%f", &price)
-		
+
 		var minAmount, maxAmount, availableAmount float64
 		fmt.Sscanf(item.Adv.MinSingleTransAmount, "%f", &minAmount)
 		fmt.Sscanf(item.Adv.MaxSingleTransAmount, "%f", &maxAmount)
@@ -126,17 +126,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		for _, method := range item.Adv.TradeMethods {
 			payMethods = append(payMethods, method.TradeMethodName)
 		}
-		payMethodsStr := ""
-		if len(payMethods) > 0 {
-			// Join manually or use strings.Join (need to import strings)
-			// Since I'm in a replace block, I can't easily add import strings without re-reading imports.
-			// I'll assume strings is NOT imported and use a loop or just fmt.
-			// Wait, previous file content has `fmt` and `time` etc.
-			// I'll check imports again.
-			// Actually, I can just use JSON for payMethods or simple concat.
-			payMethodsStr = fmt.Sprintf("%v", payMethods)
-			payMethodsStr = payMethodsStr[1 : len(payMethodsStr)-1] // Remove brackets
-		}
+		payMethodsStr := domain.JoinNormalizedPayMethods(payMethods)
 
 		if price > 0 {
 			points = append(points, domain.PricePoint{
@@ -157,7 +147,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 			})
 		}
 	}
-	
+
 	// Sort by price
 	if side == "BUY" {
 		sort.Slice(points, func(i, j int) bool {

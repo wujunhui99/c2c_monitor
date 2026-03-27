@@ -65,17 +65,17 @@ func TestGateAdapterGetTopPricesFiltersByAmount(t *testing.T) {
 						"nick": "Too High",
 						"oid": "ad-1"
 					},
-					{
-						"rate": "6.98",
-						"amount": "331.96",
-						"limit_fiat": "69.8~767.8",
-						"min_amount": "10",
-						"max_amount": "110",
-						"pay_type_num": "255",
-						"uid": "uid-match",
-						"nick": "Matched Merchant",
-						"oid": "ad-2"
-					},
+						{
+							"rate": "6.98",
+							"amount": "331.96",
+							"limit_fiat": "69.8~767.8",
+							"min_amount": "10",
+							"max_amount": "110",
+							"pay_type_num": "255,1",
+							"uid": "uid-match",
+							"nick": "Matched Merchant",
+							"oid": "ad-2"
+						},
 					{
 						"rate": "6.97",
 						"amount": "1000.00",
@@ -117,8 +117,8 @@ func TestGateAdapterGetTopPricesFiltersByAmount(t *testing.T) {
 	if point.MerchantID != "uid-match" {
 		t.Fatalf("expected merchant id uid-match, got %q", point.MerchantID)
 	}
-	if point.PayMethods != "Multiple" {
-		t.Fatalf("expected pay methods Multiple, got %q", point.PayMethods)
+	if point.PayMethods != "支付宝, 微信" {
+		t.Fatalf("expected pay methods 支付宝, 微信, got %q", point.PayMethods)
 	}
 	if point.Rank != 1 {
 		t.Fatalf("expected rank 1, got %d", point.Rank)

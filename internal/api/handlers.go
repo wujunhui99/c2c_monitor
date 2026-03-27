@@ -96,7 +96,7 @@ func (h *Handler) GetHistory(c *gin.Context) {
 				"t":                p.CreatedAt.Unix(),
 				"v":                p.Price,
 				"merchant":         p.Merchant,
-				"pay_methods":      p.PayMethods,
+				"pay_methods":      domain.NormalizePayMethodsString(p.PayMethods),
 				"min_amount":       p.MinAmount,
 				"max_amount":       p.MaxAmount,
 				"available_amount": p.AvailableAmount,
