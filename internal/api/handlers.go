@@ -76,7 +76,33 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	resp := gin.H{
 		"forex":   []gin.H{},
 		"binance": []gin.H{},
+		"gate":    []gin.H{},
 		"okx":     []gin.H{},
+	}
+
+	appendExchangeHistory := func(exchangeName, responseKey string) {
+		filter.Exchange = exchangeName
+		prices, err := h.svc.GetPriceHistoryByGranularity(c.Request.Context(), filter, granularity)
+		if granularity != domain.HistoryGranularityRaw && (err != nil || len(prices) == 0) {
+			prices, err = h.svc.GetPriceHistory(c.Request.Context(), filter)
+		}
+		if err != nil {
+			return
+		}
+
+		var list []gin.H
+		for _, p := range prices {
+			list = append(list, gin.H{
+				"t":                p.CreatedAt.Unix(),
+				"v":                p.Price,
+				"merchant":         p.Merchant,
+				"pay_methods":      p.PayMethods,
+				"min_amount":       p.MinAmount,
+				"max_amount":       p.MaxAmount,
+				"available_amount": p.AvailableAmount,
+			})
+		}
+		resp[responseKey] = list
 	}
 
 	// 1. Forex
@@ -92,49 +118,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 		resp["forex"] = list
 	}
 
-	// 2. Binance
-	filter.Exchange = "Binance"
-	binancePrices, err := h.svc.GetPriceHistoryByGranularity(c.Request.Context(), filter, granularity)
-	if granularity != domain.HistoryGranularityRaw && (err != nil || len(binancePrices) == 0) {
-		binancePrices, err = h.svc.GetPriceHistory(c.Request.Context(), filter)
-	}
-	if err == nil {
-		var list []gin.H
-		for _, p := range binancePrices {
-			list = append(list, gin.H{
-				"t":                p.CreatedAt.Unix(),
-				"v":                p.Price,
-				"merchant":         p.Merchant,
-				"pay_methods":      p.PayMethods,
-				"min_amount":       p.MinAmount,
-				"max_amount":       p.MaxAmount,
-				"available_amount": p.AvailableAmount,
-			})
-		}
-		resp["binance"] = list
-	}
-
-	// 3. OKX
-	filter.Exchange = "OKX"
-	okxPrices, err := h.svc.GetPriceHistoryByGranularity(c.Request.Context(), filter, granularity)
-	if granularity != domain.HistoryGranularityRaw && (err != nil || len(okxPrices) == 0) {
-		okxPrices, err = h.svc.GetPriceHistory(c.Request.Context(), filter)
-	}
-	if err == nil {
-		var list []gin.H
-		for _, p := range okxPrices {
-			list = append(list, gin.H{
-				"t":                p.CreatedAt.Unix(),
-				"v":                p.Price,
-				"merchant":         p.Merchant,
-				"pay_methods":      p.PayMethods,
-				"min_amount":       p.MinAmount,
-				"max_amount":       p.MaxAmount,
-				"available_amount": p.AvailableAmount,
-			})
-		}
-		resp["okx"] = list
-	}
+	// 2. Exchanges
+	appendExchangeHistory("Binance", "binance")
+	appendExchangeHistory("Gate", "gate")
+	appendExchangeHistory("OKX", "okx")
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
 }
@@ -144,7 +131,7 @@ func (h *Handler) GetConfig(c *gin.Context) {
 }
 
 func (h *Handler) UpdateConfig(c *gin.Context) {
-	var newCfg config.MonitorConfig
+	newCfg := h.svc.GetConfig()
 	if err := c.ShouldBindJSON(&newCfg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

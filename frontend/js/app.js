@@ -153,7 +153,7 @@ function initChart() {
                 return result;
             }
         },
-        legend: { data: ['Binance', 'OKX', 'USD/CNY 汇率'] },
+        legend: { data: ['Binance', 'Gate', 'OKX', 'USD/CNY 汇率'] },
         grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
         xAxis: { type: 'time', boundaryGap: false },
         yAxis: { type: 'value', scale: true }, 
@@ -396,6 +396,7 @@ function updateSystemStatusUI(statusMap) {
 async function saveConfig() {
     const el = getElements();
     const newConfig = {
+        ...state.config,
         c2c_interval_minutes: parseInt(el.c2cIntervalInput.value),
         forex_interval_hours: parseInt(el.forexIntervalInput.value),
         target_amounts: state.config.target_amounts
@@ -485,6 +486,7 @@ function updateChart(data) {
     };
 
     const binanceData = processData(data.binance);
+    const gateData = processData(data.gate);
     const okxData = processData(data.okx);
     // Forex data only has [time, value]
     const forexData = (data.forex || []).map(item => [new Date(item.t * 1000), item.v]);
@@ -495,6 +497,13 @@ function updateChart(data) {
                 name: 'Binance',
                 type: 'line',
                 data: binanceData,
+                showSymbol: false,
+                lineStyle: { width: 2 }
+            },
+            {
+                name: 'Gate',
+                type: 'line',
+                data: gateData,
                 showSymbol: false,
                 lineStyle: { width: 2 }
             },

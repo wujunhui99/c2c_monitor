@@ -9,13 +9,13 @@ import (
 	"syscall"
 
 	"c2c_monitor/config"
+	"c2c_monitor/internal/api"
 	"c2c_monitor/internal/domain"
 	"c2c_monitor/internal/infrastructure/exchange"
 	"c2c_monitor/internal/infrastructure/forex"
 	"c2c_monitor/internal/infrastructure/notifier"
 	"c2c_monitor/internal/infrastructure/persistence/mysql"
 	"c2c_monitor/internal/service"
-	"c2c_monitor/internal/api"
 
 	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	
+
 	repo := mysql.NewMySQLRepository(db)
 	if err := repo.AutoMigrate(); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
@@ -43,6 +43,7 @@ func main() {
 	// Exchanges
 	exchanges := make(map[string]domain.IExchange)
 	exchanges["binance"] = exchange.NewBinanceAdapter()
+	exchanges["gate"] = exchange.NewGateAdapter()
 	exchanges["okx"] = exchange.NewOKXAdapter()
 
 	// Forex
@@ -75,7 +76,7 @@ func main() {
 
 	// 6. Start Web Server
 	router := api.SetupRouter(svc, cfg)
-	
+
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.App.Port)
 		log.Printf("Web server listening on %s", addr)

@@ -9,7 +9,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	
+
 	// 1. Test Binance
 	fmt.Println("=== Testing Binance C2C Crawler (Amount: 100,000) ===")
 	bnAdapter := exchange.NewBinanceAdapter()
@@ -26,12 +26,12 @@ func main() {
 	fmt.Println()
 
 	fmt.Println("=== Testing Gate.io C2C Crawler ===")
-	gateAdapter := exchange.NewOKXAdapter()
+	gateAdapter := exchange.NewGateAdapter()
 	gatePrices, err := gateAdapter.GetTopPrices(ctx, "USDT", "CNY", "BUY", 100)
 	if err != nil {
-		fmt.Printf("❌ OKX Error: %v\n", err)
+		fmt.Printf("❌ Gate Error: %v\n", err)
 	} else {
-		fmt.Printf("✅ OKX Success! Found %d prices.\n", len(gatePrices))
+		fmt.Printf("✅ Gate Success! Found %d prices.\n", len(gatePrices))
 		for _, p := range gatePrices {
 			fmt.Printf("   Rank %d: %.2f CNY\n", p.Rank, p.Price)
 		}

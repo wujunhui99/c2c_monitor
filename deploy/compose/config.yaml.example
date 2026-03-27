@@ -7,7 +7,7 @@ monitor:
   forex_interval_hours: 1
   alert_threshold_percent: 0.1
   target_amounts: [0, 30, 50, 200, 500, 1000]
-  exchanges: ["binance", "okx"]
+  exchanges: ["binance", "gate", "okx"]
 
 database:
   # IMPORTANT: use mysql service name in docker network, not 127.0.0.1.
