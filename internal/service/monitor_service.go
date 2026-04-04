@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +29,12 @@ type MonitorService struct {
 	errorAlertCache    map[string]time.Time             // To prevent spamming error alerts
 	triggeredLowPrices map[string]float64               // To store the lowest triggered price for dynamic threshold
 	serviceStatus      map[string]*domain.ServiceStatus // Track status of each service
-	mu                 sync.RWMutex                     // Mutex for protecting maps
+	downEventLogger    *log.Logger
+	mu                 sync.RWMutex // Mutex for protecting maps
 }
 
 const forexServiceName = "Forex (Yahoo Finance)"
+const serviceDownLogPath = "logs/service_down.log"
 
 func NewMonitorService(
 	cfg config.MonitorConfig,
@@ -49,6 +54,7 @@ func NewMonitorService(
 		errorAlertCache:    make(map[string]time.Time),
 		triggeredLowPrices: make(map[string]float64),
 		serviceStatus:      make(map[string]*domain.ServiceStatus),
+		downEventLogger:    newServiceDownLogger(serviceDownLogPath),
 	}
 
 	// Initialize status for exchanges to ensure they appear in frontend
@@ -115,6 +121,7 @@ func (s *MonitorService) updateServiceStatus(name string, err error) {
 		if status.Status != "Error" {
 			status.Status = "Error"
 			status.Message = err.Error()
+			s.logServiceDown(name, err)
 			// Send Alert (Async)
 			go s.sendErrorAlert(name, err)
 		} else {
@@ -128,6 +135,28 @@ func (s *MonitorService) updateServiceStatus(name string, err error) {
 		status.Status = "OK"
 		status.Message = ""
 	}
+}
+
+func newServiceDownLogger(path string) *log.Logger {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Printf("Failed to create service down log directory: %v", err)
+		return log.New(io.Discard, "", 0)
+	}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Printf("Failed to open service down log file: %v", err)
+		return log.New(io.Discard, "", 0)
+	}
+
+	return log.New(file, "", log.LstdFlags)
+}
+
+func (s *MonitorService) logServiceDown(name string, err error) {
+	if s.downEventLogger == nil {
+		return
+	}
+	s.downEventLogger.Printf("SERVICE_DOWN service=%q details=%q", name, err.Error())
 }
 
 func (s *MonitorService) sendErrorAlert(name string, err error) {

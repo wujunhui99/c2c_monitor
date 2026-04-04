@@ -27,7 +27,7 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
     && adduser -S -G app app \
-    && mkdir -p /app/config
+    && mkdir -p /app/config /app/logs
 
 COPY --from=builder /out/monitor /app/monitor
 # Provide a default config file path. Replace with real values in deployment.
