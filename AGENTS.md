@@ -30,6 +30,7 @@
 - 变更启动、部署、排障方式时，同时更新 `docs/operations/runbook.md`。
 - 变更模块边界、目录职责或关键不变量时，同时更新 `docs/architecture/overview.md`。
 - 新迭代开始前，优先在 `docs/exec-plans/active/` 新建或更新执行计划。
+- `docs/tech-debt-tracker.md` 只保留尚未完成的技术债；某项已经修复后，要在同一批变更里把它从文档删除。
 - 不要重新引入新的顶层 `PRD.md`；让 `docs/` 保持单一事实来源。
 
 ## Mechanical Invariants
