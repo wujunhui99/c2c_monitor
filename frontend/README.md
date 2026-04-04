@@ -46,5 +46,5 @@ You need to have one of the following installed:
 
 ### Configuration
 
--   The backend API endpoint is configured in `js/config.js`. By default, it points to `http://localhost:8000`.
+-   The backend API endpoint is configured in `js/config.js`. By default, it should point to `http://localhost:8001`.
 -   Ensure the Go backend application is running so the frontend can fetch data.

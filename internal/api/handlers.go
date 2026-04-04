@@ -57,8 +57,6 @@ func (h *Handler) GetHistory(c *gin.Context) {
 		startTime = now.Add(-24 * time.Hour) // Default 1d
 	}
 
-	// Fetch C2C History (Binance)
-	// We want Rank 1 prices usually for the chart
 	filter := domain.PriceQueryFilter{
 		Symbol:       "USDT",
 		Fiat:         "CNY",
@@ -70,14 +68,9 @@ func (h *Handler) GetHistory(c *gin.Context) {
 		Limit:        5000, // Safety limit
 	}
 
-	// We might want multiple exchanges. The PRD says "Line 1 (Binance), Line 2 (Gate)".
-	// So we need to query for each exchange.
-
-	resp := gin.H{
-		"forex":   []gin.H{},
-		"binance": []gin.H{},
-		"gate":    []gin.H{},
-		"okx":     []gin.H{},
+	resp := gin.H{"forex": []gin.H{}}
+	for _, exchangeName := range domain.SupportedExchangeNames() {
+		resp[domain.ExchangeResponseKey(exchangeName)] = []gin.H{}
 	}
 
 	appendExchangeHistory := func(exchangeName, responseKey string) {
@@ -119,9 +112,9 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	}
 
 	// 2. Exchanges
-	appendExchangeHistory("Binance", "binance")
-	appendExchangeHistory("Gate", "gate")
-	appendExchangeHistory("OKX", "okx")
+	for _, exchangeName := range domain.SupportedExchangeNames() {
+		appendExchangeHistory(exchangeName, domain.ExchangeResponseKey(exchangeName))
+	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": resp})
 }
@@ -137,7 +130,10 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	h.svc.UpdateConfig(newCfg)
+	if err := h.svc.UpdateConfig(newCfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "updated"})
 }
 

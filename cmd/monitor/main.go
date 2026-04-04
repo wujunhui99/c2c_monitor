@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"c2c_monitor/config"
 	"c2c_monitor/internal/api"
@@ -14,81 +19,84 @@ import (
 	"c2c_monitor/internal/infrastructure/exchange"
 	"c2c_monitor/internal/infrastructure/forex"
 	"c2c_monitor/internal/infrastructure/notifier"
-	"c2c_monitor/internal/infrastructure/persistence/mysql"
+	mysqlrepo "c2c_monitor/internal/infrastructure/persistence/mysql"
 	"c2c_monitor/internal/service"
-
-	gormmysql "gorm.io/driver/mysql"
+	gmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
 func main() {
-	// 1. Load Config
-	cfg, err := config.LoadConfig("config/config.yaml")
+	configPath := flag.String("config", defaultConfigPath(), "path to config yaml")
+	flag.Parse()
+
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		log.Fatalf("failed to load config: %v", err)
 	}
 
-	// 2. Init Database
-	db, err := gorm.Open(gormmysql.Open(cfg.Database.DSN), &gorm.Config{})
+	db, err := gorm.Open(gmysql.Open(cfg.Database.DSN), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("failed to connect database: %v", err)
 	}
 
-	repo := mysql.NewMySQLRepository(db)
+	repo := mysqlrepo.NewMySQLRepository(db)
 	if err := repo.AutoMigrate(); err != nil {
-		log.Fatalf("Failed to migrate database: %v", err)
+		log.Fatalf("failed to auto migrate database: %v", err)
 	}
 
-	// 3. Init Adapters
-	// Exchanges
-	exchanges := make(map[string]domain.IExchange)
-	exchanges["binance"] = exchange.NewBinanceAdapter()
-	exchanges["gate"] = exchange.NewGateAdapter()
-	exchanges["okx"] = exchange.NewOKXAdapter()
+	exchanges := map[string]domain.IExchange{
+		domain.ExchangeBinance: exchange.NewBinanceAdapter(),
+		domain.ExchangeGate:    exchange.NewGateAdapter(),
+		domain.ExchangeOKX:     exchange.NewOKXAdapter(),
+	}
 
-	// Forex
-	forexAdapter := forex.NewYahooForexAdapter()
-
-	// Notifier
-	emailNotifier := notifier.NewSMTPNotifier(
-		cfg.Notification.Email.SMTPHost,
-		cfg.Notification.Email.SMTPPort,
-		cfg.Notification.Email.Username,
-		cfg.Notification.Email.Password,
-		cfg.Notification.Email.From,
-		cfg.Notification.Email.To,
-	)
-
-	// 4. Init Service
 	svc := service.NewMonitorService(
 		cfg.Monitor,
 		repo,
 		exchanges,
-		forexAdapter,
-		emailNotifier,
+		forex.NewYahooForexAdapter(),
+		notifier.NewSMTPNotifier(
+			cfg.Notification.Email.SMTPHost,
+			cfg.Notification.Email.SMTPPort,
+			cfg.Notification.Email.Username,
+			cfg.Notification.Email.Password,
+			cfg.Notification.Email.From,
+			cfg.Notification.Email.To,
+		),
 	)
 
-	// 5. Start Service (Background)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	go svc.Start(ctx)
 
-	// 6. Start Web Server
 	router := api.SetupRouter(svc, cfg)
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.App.Port),
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.App.Port)
-		log.Printf("Web server listening on %s", addr)
-		if err := router.Run(addr); err != nil {
-			log.Fatalf("Server failed: %v", err)
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("graceful shutdown failed: %v", err)
 		}
 	}()
 
-	// 7. Graceful Shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	log.Printf("C2C monitor starting on %s with exchanges=%s", server.Addr, strings.Join(cfg.Monitor.Exchanges, ", "))
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("http server exited unexpectedly: %v", err)
+	}
+}
 
-	log.Println("Shutting down...")
+func defaultConfigPath() string {
+	if path := strings.TrimSpace(os.Getenv("C2C_CONFIG")); path != "" {
+		return path
+	}
+	return "config/config.yaml"
 }

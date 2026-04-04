@@ -1,10 +1,11 @@
-.PHONY: build start stop restart start-backend stop-backend start-frontend stop-frontend logs help
+.PHONY: build test doctor start stop restart start-backend stop-backend start-frontend stop-frontend logs help status
 
 # 项目配置
 BINARY_NAME=c2c_monitor
 FRONTEND_DIR=frontend
 FRONTEND_PORT=8080
 BACKEND_PORT=8001
+CONFIG_PATH=config/config.yaml
 
 # 默认目标
 help:
@@ -12,6 +13,8 @@ help:
 	@echo ""
 	@echo "使用方法:"
 	@echo "  make build           - 编译后端"
+	@echo "  make test            - 运行 Go 单元测试"
+	@echo "  make doctor          - 运行仓库自检（文档结构 + 测试 + 构建）"
 	@echo "  make start           - 启动所有服务 (后端+前端)"
 	@echo "  make stop            - 关闭所有服务"
 	@echo "  make restart         - 重启所有服务"
@@ -34,13 +37,23 @@ build:
 	@go build -o $(BINARY_NAME) ./cmd/monitor
 	@echo "编译完成"
 
+test:
+	@go test ./...
+
+doctor:
+	@./scripts/doctor.sh
+
 # 启动后端
 start-backend: build
 	@mkdir -p logs
+	@if [ ! -f $(CONFIG_PATH) ]; then \
+		echo "复制默认后端配置: $(CONFIG_PATH)"; \
+		cp config/config.yaml.example $(CONFIG_PATH); \
+	fi
 	@echo "启动后端服务..."
 	@pkill -x "$(BINARY_NAME)" 2>/dev/null || true
 	@sleep 1
-	@nohup ./$(BINARY_NAME) > logs/backend.log 2>&1 &
+	@nohup ./$(BINARY_NAME) -config $(CONFIG_PATH) > logs/backend.log 2>&1 &
 	@sleep 2
 	@if curl -fsS http://localhost:$(BACKEND_PORT)/api/config > /dev/null; then \
 		echo "后端启动成功 - http://localhost:$(BACKEND_PORT)"; \

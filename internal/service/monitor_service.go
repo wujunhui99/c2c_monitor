@@ -57,21 +57,7 @@ func NewMonitorService(
 		downEventLogger:    newServiceDownLogger(serviceDownLogPath),
 	}
 
-	// Initialize status for exchanges to ensure they appear in frontend
-	for _, name := range cfgCopy.Exchanges {
-		ms.serviceStatus[name] = &domain.ServiceStatus{
-			Name:      name,
-			Status:    "Pending",
-			Message:   "Initializing...",
-			LastCheck: time.Now(),
-		}
-	}
-	ms.serviceStatus[forexServiceName] = &domain.ServiceStatus{
-		Name:      forexServiceName,
-		Status:    "Pending",
-		Message:   "Initializing...",
-		LastCheck: time.Now(),
-	}
+	ms.syncConfiguredServiceStatuses(cfgCopy.Exchanges)
 
 	return ms
 }
@@ -103,6 +89,45 @@ func (s *MonitorService) getLastForex() float64 {
 	s.forexMu.RLock()
 	defer s.forexMu.RUnlock()
 	return s.lastForex
+}
+
+func (s *MonitorService) syncConfiguredServiceStatuses(exchangeNames []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	keep := map[string]struct{}{
+		forexServiceName: {},
+	}
+
+	for _, name := range exchangeNames {
+		keep[name] = struct{}{}
+		if _, exists := s.serviceStatus[name]; exists {
+			continue
+		}
+		s.serviceStatus[name] = &domain.ServiceStatus{
+			Name:      name,
+			Status:    "Pending",
+			Message:   "Initializing...",
+			LastCheck: now,
+		}
+	}
+
+	if _, exists := s.serviceStatus[forexServiceName]; !exists {
+		s.serviceStatus[forexServiceName] = &domain.ServiceStatus{
+			Name:      forexServiceName,
+			Status:    "Pending",
+			Message:   "Initializing...",
+			LastCheck: now,
+		}
+	}
+
+	for name := range s.serviceStatus {
+		if _, ok := keep[name]; ok {
+			continue
+		}
+		delete(s.serviceStatus, name)
+	}
 }
 
 func (s *MonitorService) updateServiceStatus(name string, err error) {
@@ -618,8 +643,16 @@ func (s *MonitorService) GetConfig() config.MonitorConfig {
 	return s.getConfigSnapshot()
 }
 
-func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) {
+func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) error {
+	normalizedCfg, err := config.NormalizeMonitorConfig(newCfg)
+	if err != nil {
+		return err
+	}
+
 	s.cfgMu.Lock()
-	s.cfg = cloneMonitorConfig(newCfg)
+	s.cfg = cloneMonitorConfig(normalizedCfg)
 	s.cfgMu.Unlock()
+
+	s.syncConfiguredServiceStatuses(normalizedCfg.Exchanges)
+	return nil
 }

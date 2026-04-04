@@ -52,7 +52,8 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("monitor.forex_interval_hours", 1)
 	viper.SetDefault("monitor.alert_threshold_percent", 0.1)
 	viper.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
-	
+	viper.SetDefault("monitor.exchanges", []string{"Binance", "Gate", "OKX"})
+
 	// Environment variable support
 	viper.SetEnvPrefix("C2C")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
@@ -65,6 +66,10 @@ func LoadConfig(path string) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	if err := NormalizeAndValidate(&cfg); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil
