@@ -1,10 +1,5 @@
 # Tech Debt Tracker
 
-## 高优先级
-
-- 还没有 CI 自动执行 `make doctor`
-- `cmd/monitor` 只有构建验证，缺少端到端启动测试
-
 ## 中优先级
 
 - 历史 API 仍然返回固定的交易所键，前后端契约没有单独测试

@@ -2,7 +2,7 @@
 bin/
 c2c_monitor
 c2c_monitor_bin
-monitor
+/monitor
 *.exe
 *.exe~
 *.dll
