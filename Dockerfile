@@ -15,7 +15,7 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
-COPY config/config.go ./config/config.go
+COPY config ./config
 
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/monitor ./cmd/monitor

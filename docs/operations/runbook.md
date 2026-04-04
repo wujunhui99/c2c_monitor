@@ -34,6 +34,22 @@
   make doctor
   ```
 
+- 日常提交前检查：
+
+  ```bash
+  make doctor
+  ```
+
+  这是每次提交前的硬性要求；如果失败，先修复再提交。
+
+- 改动 `Dockerfile`、包结构或构建脚本后的额外检查：
+
+  ```bash
+  docker build -f Dockerfile .
+  ```
+
+  只要命中这类改动，这条也是提交前的硬性要求。
+
 - 只启动后端进程：
 
   ```bash
@@ -50,6 +66,11 @@
 - `GET /api/status`
 
 ## 常见问题
+
+### 发布流程有哪些硬性要求
+
+- 镜像发布前，CI 必须先跑前置验证，不能直接进入 build/push。
+- 当前仓库的镜像发布 workflow 已经通过 `verify` job 先执行 `make doctor`。
 
 ### 后端无法启动
 
