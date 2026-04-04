@@ -29,6 +29,8 @@ type MonitorService struct {
 	mu                 sync.RWMutex                     // Mutex for protecting maps
 }
 
+const forexServiceName = "Forex (Yahoo Finance)"
+
 func NewMonitorService(
 	cfg config.MonitorConfig,
 	repo domain.IRepository,
@@ -58,8 +60,8 @@ func NewMonitorService(
 			LastCheck: time.Now(),
 		}
 	}
-	ms.serviceStatus["Forex (OpenER)"] = &domain.ServiceStatus{
-		Name:      "Forex (OpenER)",
+	ms.serviceStatus[forexServiceName] = &domain.ServiceStatus{
+		Name:      forexServiceName,
 		Status:    "Pending",
 		Message:   "Initializing...",
 		LastCheck: time.Now(),
@@ -235,9 +237,9 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 
 	// Update Status
 	if err != nil {
-		s.updateServiceStatus("Forex (OpenER)", err)
+		s.updateServiceStatus(forexServiceName, err)
 	} else {
-		s.updateServiceStatus("Forex (OpenER)", nil)
+		s.updateServiceStatus(forexServiceName, nil)
 	}
 
 	if err != nil {
@@ -257,7 +259,7 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 	// Save to DB
 	err = s.repo.SaveForexRate(ctx, &domain.ForexRate{
 		CreatedAt: time.Now(),
-		Source:    "OpenER",
+		Source:    "Yahoo Finance",
 		Pair:      "USDCNY",
 		Rate:      rate,
 	})
@@ -488,14 +490,15 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 		// Trigger Alert
 		var subject string
 		if alertType == "Lower" {
-			subject = fmt.Sprintf("📉 New Low! %s USDT Price: %.4f (Was: %.4f)", p.Exchange, p.Price, triggeredPrice)
+			subject = fmt.Sprintf("📉 New Low! %s %s USDT Price: %.4f (Was: %.4f)", p.Exchange, p.Merchant, p.Price, triggeredPrice)
 		} else {
-			subject = fmt.Sprintf("🚨 Opportunity! %s USDT Price: %.4f (Spread: %.2f%%)", p.Exchange, p.Price, spread)
+			subject = fmt.Sprintf("🚨 Opportunity! %s %s USDT Price: %.4f (Spread: %.2f%%)", p.Exchange, p.Merchant, p.Price, spread)
 		}
 
 		body := fmt.Sprintf(`
 			<h3>C2C Arbitrage Opportunity</h3>
 			<p><b>Exchange:</b> %s</p>
+			<p><b>Merchant:</b> %s</p>
 			<p><b>Side:</b> User %s</p>
 			<p><b>Min Amount:</b> %.0f CNY</p>
 			<p><b>Max Amount:</b> %.0f CNY</p>
@@ -506,7 +509,7 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 			<p><i>Threshold Mode: %s</i></p>
 			<br/>
 			<p>Time: %s</p>
-		`, p.Exchange, p.Side, p.MinAmount, p.MaxAmount, p.PayMethods, p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
+		`, p.Exchange, p.Merchant, p.Side, p.MinAmount, p.MaxAmount, p.PayMethods, p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
 
 		log.Printf("🔥🔥 TRIGGERING ALERT (%s): %s", alertType, subject)
 

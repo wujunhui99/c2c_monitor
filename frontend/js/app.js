@@ -491,37 +491,25 @@ function updateChart(data) {
     // Forex data only has [time, value]
     const forexData = (data.forex || []).map(item => [new Date(item.t * 1000), item.v]);
 
+    const buildSeries = (name, data, extra = {}) => ({
+        name,
+        type: 'line',
+        data,
+        showSymbol: data.length <= 1,
+        symbolSize: data.length <= 1 ? 10 : 4,
+        lineStyle: { width: 2 },
+        ...extra
+    });
+
     state.chartInstance.setOption({
         series: [
-            {
-                name: 'Binance',
-                type: 'line',
-                data: binanceData,
-                showSymbol: false,
-                lineStyle: { width: 2 }
-            },
-            {
-                name: 'Gate',
-                type: 'line',
-                data: gateData,
-                showSymbol: false,
-                lineStyle: { width: 2 }
-            },
-            {
-                name: 'OKX',
-                type: 'line',
-                data: okxData,
-                showSymbol: false,
-                lineStyle: { width: 2 }
-            },
-            {
-                name: 'USD/CNY 汇率',
-                type: 'line',
-                data: forexData,
-                showSymbol: false,
+            buildSeries('Binance', binanceData),
+            buildSeries('Gate', gateData),
+            buildSeries('OKX', okxData),
+            buildSeries('USD/CNY 汇率', forexData, {
                 itemStyle: { color: '#dc3545' },
                 lineStyle: { type: 'dashed', width: 2 }
-            }
+            })
         ]
     });
     state.chartInstance.hideLoading();
