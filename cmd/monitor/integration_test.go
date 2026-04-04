@@ -82,6 +82,16 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 		return nil
 	})
 
+	var metaResp struct {
+		Version string `json:"version"`
+	}
+	if err := getJSON(client, server.URL+"/api/meta", &metaResp); err != nil {
+		t.Fatalf("failed to read meta route: %v", err)
+	}
+	if metaResp.Version == "" {
+		t.Fatal("expected non-empty version from meta route")
+	}
+
 	var configResp config.MonitorConfig
 	if err := getJSON(client, server.URL+"/api/config", &configResp); err != nil {
 		t.Fatalf("failed to read config route: %v", err)

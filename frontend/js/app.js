@@ -5,6 +5,7 @@ const state = {
         forex_interval_hours: 1,
         target_amounts: []
     },
+    version: 'unknown',
     currentAmount: null,
     currentRange: '1d',
     chartInstance: null
@@ -38,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initChart();
     
-    loadConfig().then(() => {
+    Promise.all([loadMeta(), loadConfig()]).then(() => {
         // After config loaded, load initial data
         if (state.config.target_amounts && state.config.target_amounts.length > 0) {
             state.currentAmount = state.config.target_amounts[0];
@@ -66,7 +67,8 @@ function getElements() {
         mainChart: document.getElementById('main-chart'),
         alertStatusTableBody: document.querySelector('#alert-status-table tbody'),
         systemStatusIndicator: document.getElementById('system-status-indicator'),
-        statusDetailsTooltip: document.querySelector('.status-details-tooltip')
+        statusDetailsTooltip: document.querySelector('.status-details-tooltip'),
+        appVersionBadge: document.getElementById('app-version-badge')
     };
 }
 
@@ -243,6 +245,26 @@ async function loadConfig() {
         renderConfigUI();
     } catch (error) {
         console.error('Error loading config:', error);
+    }
+}
+
+async function loadMeta() {
+    const el = getElements();
+
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/meta`);
+        if (!response.ok) throw new Error('Failed to fetch app metadata');
+
+        const data = await response.json();
+        state.version = data.version || 'unknown';
+        if (el.appVersionBadge) {
+            el.appVersionBadge.textContent = state.version;
+        }
+    } catch (error) {
+        console.error('Error loading app metadata:', error);
+        if (el.appVersionBadge) {
+            el.appVersionBadge.textContent = 'version unavailable';
+        }
     }
 }
 

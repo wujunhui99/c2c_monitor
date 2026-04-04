@@ -33,6 +33,7 @@
 ### 运行时配置
 
 - `GET /api/config` 返回当前监控配置
+- `GET /api/meta` 返回当前服务版本
 - `POST /api/config` 更新运行中配置
 - 当前更新只影响内存态，不回写 `config.yaml`
 

@@ -1,10 +1,10 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
 	"c2c_monitor/config"
 	"c2c_monitor/internal/service"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
@@ -26,6 +26,7 @@ func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
 	}
 
 	// Config Routes
+	r.GET("/api/meta", h.GetMeta)
 	r.GET("/api/config", h.GetConfig)
 	r.POST("/api/config", h.UpdateConfig)
 

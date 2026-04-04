@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"c2c_monitor/config"
+	"c2c_monitor/internal/appmeta"
 	"c2c_monitor/internal/domain"
 	"c2c_monitor/internal/service"
 	"github.com/gin-gonic/gin"
@@ -121,6 +122,10 @@ func (h *Handler) GetHistory(c *gin.Context) {
 
 func (h *Handler) GetConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, h.svc.GetConfig())
+}
+
+func (h *Handler) GetMeta(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"version": appmeta.Version})
 }
 
 func (h *Handler) UpdateConfig(c *gin.Context) {

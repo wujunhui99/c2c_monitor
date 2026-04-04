@@ -15,6 +15,7 @@ import (
 
 	"c2c_monitor/config"
 	"c2c_monitor/internal/api"
+	"c2c_monitor/internal/appmeta"
 	"c2c_monitor/internal/domain"
 	"c2c_monitor/internal/infrastructure/exchange"
 	"c2c_monitor/internal/infrastructure/forex"
@@ -88,7 +89,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("C2C monitor starting on %s with exchanges=%s", server.Addr, strings.Join(cfg.Monitor.Exchanges, ", "))
+	log.Printf("C2C monitor %s starting on %s with exchanges=%s", appmeta.Version, server.Addr, strings.Join(cfg.Monitor.Exchanges, ", "))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("http server exited unexpectedly: %v", err)
 	}
