@@ -27,6 +27,7 @@ func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
 
 	// Config Routes
 	r.GET("/api/meta", h.GetMeta)
+	r.GET("/api/changelog", h.GetChangelog)
 	r.GET("/api/config", h.GetConfig)
 	r.POST("/api/config", h.UpdateConfig)
 

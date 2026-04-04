@@ -68,7 +68,7 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 			return err
 		}
 
-		expectedServices := append(domain.SupportedExchangeNames(), "Forex (Yahoo Finance)")
+		expectedServices := append(domain.SupportedExchangeNames(), "Forex (Reference Sources)")
 		for _, name := range expectedServices {
 			status, ok := resp.Data[name]
 			if !ok {
@@ -83,13 +83,36 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 	})
 
 	var metaResp struct {
-		Version string `json:"version"`
+		Version            string            `json:"version"`
+		SupportedExchanges []string          `json:"supported_exchanges"`
+		HistoryKeys        map[string]string `json:"history_keys"`
 	}
 	if err := getJSON(client, server.URL+"/api/meta", &metaResp); err != nil {
 		t.Fatalf("failed to read meta route: %v", err)
 	}
 	if metaResp.Version == "" {
 		t.Fatal("expected non-empty version from meta route")
+	}
+	if len(metaResp.SupportedExchanges) != 3 {
+		t.Fatalf("expected 3 supported exchanges from meta route, got %v", metaResp.SupportedExchanges)
+	}
+	if len(metaResp.HistoryKeys) != 3 {
+		t.Fatalf("expected 3 history keys from meta route, got %v", metaResp.HistoryKeys)
+	}
+
+	var changelogResp struct {
+		Releases []struct {
+			Version string `json:"version"`
+		} `json:"releases"`
+	}
+	if err := getJSON(client, server.URL+"/api/changelog", &changelogResp); err != nil {
+		t.Fatalf("failed to read changelog route: %v", err)
+	}
+	if len(changelogResp.Releases) == 0 {
+		t.Fatal("expected changelog route to return releases")
+	}
+	if changelogResp.Releases[0].Version != metaResp.Version {
+		t.Fatalf("expected latest changelog version %s, got %s", metaResp.Version, changelogResp.Releases[0].Version)
 	}
 
 	var configResp config.MonitorConfig
@@ -119,6 +142,93 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 			key := domain.ExchangeResponseKey(exchangeName)
 			if len(resp.Data[key]) == 0 {
 				return fmt.Errorf("%s history is empty", key)
+			}
+		}
+		return nil
+	})
+}
+
+func TestHistoryContractMatchesMetaExchangeMetadata(t *testing.T) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	cfg := &config.Config{
+		App: config.AppConfig{Port: 8001},
+		Monitor: config.MonitorConfig{
+			C2CIntervalMinutes:    1,
+			ForexIntervalHours:    1,
+			AlertThresholdPercent: 0.1,
+			TargetAmounts:         []float64{30},
+			Exchanges:             []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
+		},
+		Database: config.DatabaseConfig{DSN: "integration-test"},
+	}
+
+	repo := newMemoryRepository()
+	exchanges := map[string]domain.IExchange{
+		domain.ExchangeBinance: staticExchange{name: domain.ExchangeBinance, price: 7.08},
+		domain.ExchangeGate:    staticExchange{name: domain.ExchangeGate, price: 7.09},
+		domain.ExchangeOKX:     staticExchange{name: domain.ExchangeOKX, price: 7.07},
+	}
+
+	svc := service.NewMonitorService(
+		cfg.Monitor,
+		repo,
+		exchanges,
+		staticForex{rate: 7.2},
+		noopNotifier{},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go svc.Start(ctx)
+
+	server := httptest.NewServer(api.SetupRouter(svc, cfg))
+	defer server.Close()
+
+	client := server.Client()
+
+	var metaResp struct {
+		SupportedExchanges []string          `json:"supported_exchanges"`
+		HistoryKeys        map[string]string `json:"history_keys"`
+	}
+	if err := getJSON(client, server.URL+"/api/meta", &metaResp); err != nil {
+		t.Fatalf("failed to read meta route: %v", err)
+	}
+
+	expectedKeys := map[string]struct{}{"forex": {}}
+	for _, exchangeName := range metaResp.SupportedExchanges {
+		historyKey, ok := metaResp.HistoryKeys[exchangeName]
+		if !ok {
+			t.Fatalf("expected history key for exchange %s", exchangeName)
+		}
+		expectedKeys[historyKey] = struct{}{}
+	}
+
+	waitFor(t, 3*time.Second, func() error {
+		var historyResp struct {
+			Code int                         `json:"code"`
+			Data map[string][]map[string]any `json:"data"`
+		}
+		if err := getJSON(client, server.URL+"/api/v1/history?amount=30&range=1d", &historyResp); err != nil {
+			return err
+		}
+		if historyResp.Code != 200 {
+			return fmt.Errorf("unexpected history code %d", historyResp.Code)
+		}
+
+		if len(historyResp.Data) != len(expectedKeys) {
+			return fmt.Errorf("expected %d history keys, got %d", len(expectedKeys), len(historyResp.Data))
+		}
+		for key := range historyResp.Data {
+			if _, ok := expectedKeys[key]; !ok {
+				return fmt.Errorf("unexpected history key %s", key)
+			}
+		}
+		for key := range expectedKeys {
+			if _, ok := historyResp.Data[key]; !ok {
+				return fmt.Errorf("missing history key %s", key)
 			}
 		}
 		return nil

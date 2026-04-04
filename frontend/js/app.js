@@ -6,10 +6,14 @@ const state = {
         target_amounts: []
     },
     version: 'unknown',
+    supportedExchanges: [],
+    historyKeys: {},
     currentAmount: null,
     currentRange: '1d',
     chartInstance: null
 };
+
+const FOREX_SERIES_NAME = 'USD/CNY 汇率';
 
 // DOM Elements
 const elements = {
@@ -116,7 +120,7 @@ function initChart() {
                 
                 // Find Forex Value first
                 params.forEach(item => {
-                    if (item.seriesName === 'USD/CNY 汇率') {
+                    if (item.seriesName === FOREX_SERIES_NAME) {
                         forexVal = item.value[1];
                     }
                 });
@@ -126,7 +130,7 @@ function initChart() {
                     let extra = '';
                     
                     // Forex just shows value
-                    if (item.seriesName === 'USD/CNY 汇率') {
+                    if (item.seriesName === FOREX_SERIES_NAME) {
                         result += `${item.marker} ${item.seriesName}: ${val}<br/>`;
                         return;
                     }
@@ -155,7 +159,7 @@ function initChart() {
                 return result;
             }
         },
-        legend: { data: ['Binance', 'Gate', 'OKX', 'USD/CNY 汇率'] },
+        legend: { data: [] },
         grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
         xAxis: { type: 'time', boundaryGap: false },
         yAxis: { type: 'value', scale: true }, 
@@ -165,7 +169,7 @@ function initChart() {
     
     // Click Event
     state.chartInstance.on('click', function(params) {
-        if (params.componentType === 'series' && params.seriesName !== 'USD/CNY 汇率') {
+        if (params.componentType === 'series' && params.seriesName !== FOREX_SERIES_NAME) {
              const val = params.value;
              // val: [date, price, merchant, min, max, pay, available]
              const date = val[0].toLocaleString();
@@ -257,8 +261,13 @@ async function loadMeta() {
 
         const data = await response.json();
         state.version = data.version || 'unknown';
+        state.supportedExchanges = Array.isArray(data.supported_exchanges) ? data.supported_exchanges : [];
+        state.historyKeys = data.history_keys || {};
         if (el.appVersionBadge) {
             el.appVersionBadge.textContent = state.version;
+            if (data.summary) {
+                el.appVersionBadge.title = data.summary;
+            }
         }
     } catch (error) {
         console.error('Error loading app metadata:', error);
@@ -507,10 +516,7 @@ function updateChart(data) {
         ]);
     };
 
-    const binanceData = processData(data.binance);
-    const gateData = processData(data.gate);
-    const okxData = processData(data.okx);
-    // Forex data only has [time, value]
+    const exchangeEntries = getExchangeEntries(data);
     const forexData = (data.forex || []).map(item => [new Date(item.t * 1000), item.v]);
 
     const buildSeries = (name, data, extra = {}) => ({
@@ -523,18 +529,38 @@ function updateChart(data) {
         ...extra
     });
 
+    const exchangeSeries = exchangeEntries.map(({ name, historyKey }) => (
+        buildSeries(name, processData(data[historyKey]))
+    ));
+
     state.chartInstance.setOption({
+        legend: { data: [...exchangeEntries.map(entry => entry.name), FOREX_SERIES_NAME] },
         series: [
-            buildSeries('Binance', binanceData),
-            buildSeries('Gate', gateData),
-            buildSeries('OKX', okxData),
-            buildSeries('USD/CNY 汇率', forexData, {
+            ...exchangeSeries,
+            buildSeries(FOREX_SERIES_NAME, forexData, {
                 itemStyle: { color: '#dc3545' },
                 lineStyle: { type: 'dashed', width: 2 }
             })
         ]
     });
     state.chartInstance.hideLoading();
+}
+
+function getExchangeEntries(data) {
+    if (state.supportedExchanges.length > 0) {
+        return state.supportedExchanges.map(name => ({
+            name,
+            historyKey: state.historyKeys[name] || name.toLowerCase()
+        }));
+    }
+
+    return Object.keys(data || {})
+        .filter(key => key !== 'forex')
+        .sort()
+        .map(key => ({
+            name: key.toUpperCase(),
+            historyKey: key
+        }));
 }
 
 // Logic for Settings Tags

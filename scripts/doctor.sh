@@ -8,6 +8,7 @@ required_files=(
   "AGENTS.md"
   "README.md"
   "docs/README.md"
+  "docs/releases.json"
   "docs/architecture/overview.md"
   "docs/product/monitoring.md"
   "docs/operations/runbook.md"

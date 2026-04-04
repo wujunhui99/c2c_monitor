@@ -27,11 +27,12 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S app \
     && adduser -S -G app app \
-    && mkdir -p /app/config /app/logs
+    && mkdir -p /app/config /app/logs /app/docs
 
 COPY --from=builder /out/monitor /app/monitor
 # Provide a default config file path. Replace with real values in deployment.
 COPY config/config.yaml.example /app/config/config.yaml
+COPY docs/releases.json /app/docs/releases.json
 
 RUN chown -R app:app /app
 

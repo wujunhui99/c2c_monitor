@@ -38,7 +38,7 @@ type Merchant struct {
 type ForexRate struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
-	Source    string    `json:"source"` // e.g., "Yahoo"
+	Source    string    `json:"source"` // e.g., "open.er-api"
 	Pair      string    `json:"pair"`   // e.g., "USDCNY"
 	Rate      float64   `json:"rate"`
 }

@@ -167,9 +167,8 @@ func NewMySQLRepository(db *gorm.DB) *MySQLRepository {
 	return &MySQLRepository{db: db}
 }
 
-// AutoMigrate creates the tables
-func (r *MySQLRepository) AutoMigrate() error {
-	return r.db.AutoMigrate(
+func schemaModels() []any {
+	return []any{
 		&PricePointDAO{},
 		&C2CPriceHourlyDAO{},
 		&C2CPriceDailyDAO{},
@@ -178,7 +177,11 @@ func (r *MySQLRepository) AutoMigrate() error {
 		&ForexRateDailyDAO{},
 		&MerchantDAO{},
 		&AlertStateDAO{},
-	)
+	}
+}
+
+func runSchemaAutoMigrate(db *gorm.DB) error {
+	return db.AutoMigrate(schemaModels()...)
 }
 
 func bucketTime(t time.Time, granularity domain.HistoryGranularity) time.Time {

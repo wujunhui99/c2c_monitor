@@ -1,3 +1,3 @@
 package appmeta
 
-const Version = "v1.1.0"
+const Version = "v1.3.0"

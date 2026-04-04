@@ -125,7 +125,35 @@ func (h *Handler) GetConfig(c *gin.Context) {
 }
 
 func (h *Handler) GetMeta(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"version": appmeta.Version})
+	release, err := appmeta.CurrentRelease()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	historyKeys := make(map[string]string, len(domain.SupportedExchangeNames()))
+	for _, exchangeName := range domain.SupportedExchangeNames() {
+		historyKeys[exchangeName] = domain.ExchangeResponseKey(exchangeName)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"version":             appmeta.Version,
+		"released_at":         release.ReleasedAt,
+		"summary":             release.Summary,
+		"changelog_url":       "/api/changelog",
+		"supported_exchanges": domain.SupportedExchangeNames(),
+		"history_keys":        historyKeys,
+	})
+}
+
+func (h *Handler) GetChangelog(c *gin.Context) {
+	releases, err := appmeta.Catalog()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"releases": releases})
 }
 
 func (h *Handler) UpdateConfig(c *gin.Context) {

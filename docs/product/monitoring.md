@@ -20,6 +20,7 @@
 - 原始表保存每次抓取结果
 - 小时表和天表做聚合，减少长时间范围查询的扫描量
 - `GET /api/v1/history` 自动根据时间范围切换数据源
+- 前端使用 `GET /api/meta` 返回的 `supported_exchanges` 和 `history_keys` 来决定如何渲染历史曲线，不再硬编码交易所 key
 
 ### 告警
 
@@ -33,7 +34,8 @@
 ### 运行时配置
 
 - `GET /api/config` 返回当前监控配置
-- `GET /api/meta` 返回当前服务版本
+- `GET /api/meta` 返回当前服务版本以及前端渲染所需的交易所元数据
+- `GET /api/changelog` 返回版本变更记录
 - `POST /api/config` 更新运行中配置
 - 当前更新只影响内存态，不回写 `config.yaml`
 

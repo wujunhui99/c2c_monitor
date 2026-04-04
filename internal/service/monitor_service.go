@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -14,6 +14,7 @@ import (
 
 	"c2c_monitor/config"
 	"c2c_monitor/internal/domain"
+	"c2c_monitor/internal/logging"
 )
 
 type MonitorService struct {
@@ -29,11 +30,11 @@ type MonitorService struct {
 	errorAlertCache    map[string]time.Time             // To prevent spamming error alerts
 	triggeredLowPrices map[string]float64               // To store the lowest triggered price for dynamic threshold
 	serviceStatus      map[string]*domain.ServiceStatus // Track status of each service
-	downEventLogger    *log.Logger
+	downEventLogger    *slog.Logger
 	mu                 sync.RWMutex // Mutex for protecting maps
 }
 
-const forexServiceName = "Forex (Yahoo Finance)"
+const forexServiceName = "Forex (Reference Sources)"
 const serviceDownLogPath = "logs/service_down.log"
 
 func NewMonitorService(
@@ -155,33 +156,33 @@ func (s *MonitorService) updateServiceStatus(name string, err error) {
 		}
 	} else {
 		if status.Status == "Error" {
-			log.Printf("✅ Service Recovered: %s", name)
+			slog.Info("service recovered", "event", "service_recovered", "service", name)
 		}
 		status.Status = "OK"
 		status.Message = ""
 	}
 }
 
-func newServiceDownLogger(path string) *log.Logger {
+func newServiceDownLogger(path string) *slog.Logger {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("Failed to create service down log directory: %v", err)
-		return log.New(io.Discard, "", 0)
+		slog.Error("failed to create service down log directory", "event", "service_down_log_dir_failed", "path", path, "error", err)
+		return logging.NewJSONLogger(io.Discard, slog.LevelInfo)
 	}
 
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		log.Printf("Failed to open service down log file: %v", err)
-		return log.New(io.Discard, "", 0)
+		slog.Error("failed to open service down log file", "event", "service_down_log_open_failed", "path", path, "error", err)
+		return logging.NewJSONLogger(io.Discard, slog.LevelInfo)
 	}
 
-	return log.New(file, "", log.LstdFlags)
+	return logging.NewJSONLogger(file, slog.LevelInfo)
 }
 
 func (s *MonitorService) logServiceDown(name string, err error) {
 	if s.downEventLogger == nil {
 		return
 	}
-	s.downEventLogger.Printf("SERVICE_DOWN service=%q details=%q", name, err.Error())
+	s.downEventLogger.Error("service down", "event", "service_down", "service", name, "details", err.Error())
 }
 
 func (s *MonitorService) sendErrorAlert(name string, err error) {
@@ -196,9 +197,9 @@ func (s *MonitorService) sendErrorAlert(name string, err error) {
 		<p>Time: %s</p>
 	`, name, err, time.Now().Format(time.RFC3339))
 
-	log.Printf("⚠️ SENDING ERROR ALERT: %s", subject)
+	slog.Warn("sending error alert", "event", "error_alert_sending", "service", name, "subject", subject)
 	if notifErr := s.notifier.Send(context.Background(), subject, body); notifErr != nil {
-		log.Printf("Failed to send error alert email: %v", notifErr)
+		slog.Error("failed to send error alert email", "event", "error_alert_send_failed", "service", name, "error", notifErr)
 	}
 }
 
@@ -217,7 +218,7 @@ func (s *MonitorService) getNextC2CDuration() time.Duration {
 func (s *MonitorService) loadPersistedAlertStates(ctx context.Context) {
 	states, err := s.repo.GetAlertStates(ctx)
 	if err != nil {
-		log.Printf("Failed to load persisted alert states: %v", err)
+		slog.Error("failed to load persisted alert states", "event", "alert_states_load_failed", "error", err)
 		return
 	}
 
@@ -232,12 +233,12 @@ func (s *MonitorService) loadPersistedAlertStates(ctx context.Context) {
 		}
 	}
 
-	log.Printf("Loaded %d persisted alert states", len(states))
+	slog.Info("loaded persisted alert states", "event", "alert_states_loaded", "count", len(states))
 }
 
 // Start begins the monitoring loops
 func (s *MonitorService) Start(ctx context.Context) {
-	log.Println("Monitor Service started...")
+	slog.Info("monitor service started", "event", "monitor_service_started")
 
 	// Recover persisted dynamic thresholds and cooldown timestamps.
 	s.loadPersistedAlertStates(ctx)
@@ -263,7 +264,7 @@ func (s *MonitorService) Start(ctx context.Context) {
 			// Calculate next interval with jitter
 			nextInterval := s.getNextC2CDuration()
 			timer := time.NewTimer(nextInterval)
-			log.Printf("Next C2C check in %v", nextInterval)
+			slog.Info("scheduled next c2c check", "event", "c2c_check_scheduled", "delay", nextInterval.String())
 
 			select {
 			case <-ctx.Done():
@@ -278,7 +279,7 @@ func (s *MonitorService) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Monitor Service stopping...")
+			slog.Info("monitor service stopping", "event", "monitor_service_stopping")
 			return
 		case <-forexTicker.C:
 			s.updateForex(ctx)
@@ -297,34 +298,58 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 	}
 
 	if err != nil {
-		log.Printf("❌ Failed to fetch Forex rate: %v", err)
+		slog.Error("failed to fetch forex rate", "event", "forex_fetch_failed", "pair", "USDCNY", "error", err)
 		// Try to load latest from DB if fetch fails
 		latest, dbErr := s.repo.GetLatestForexRate(ctx, "USDCNY")
 		if dbErr == nil && latest != nil {
 			s.setLastForex(latest.Rate)
-			log.Printf("Using cached Forex rate from DB: %.4f", latest.Rate)
+			slog.Warn("using cached forex rate from database", "event", "forex_cache_used", "pair", "USDCNY", "rate", latest.Rate, "source", latest.Source)
 		}
 		return
 	}
 
+	sourceName := s.forexSourceName()
 	s.setLastForex(rate)
-	log.Printf("Updated Forex Rate: %.4f", rate)
+	slog.Info("updated forex rate", "event", "forex_updated", "pair", "USDCNY", "rate", rate, "source", sourceName)
 
 	// Save to DB
 	err = s.repo.SaveForexRate(ctx, &domain.ForexRate{
 		CreatedAt: time.Now(),
-		Source:    "Yahoo Finance",
+		Source:    sourceName,
 		Pair:      "USDCNY",
 		Rate:      rate,
 	})
 	if err != nil {
-		log.Printf("Failed to save Forex rate: %v", err)
+		slog.Error("failed to save forex rate", "event", "forex_save_failed", "pair", "USDCNY", "source", sourceName, "error", err)
 	}
+}
+
+func (s *MonitorService) forexSourceName() string {
+	type lastSourceNamer interface {
+		LastSourceName() string
+	}
+	type sourceNamer interface {
+		SourceName() string
+	}
+
+	if named, ok := s.forex.(lastSourceNamer); ok {
+		if source := strings.TrimSpace(named.LastSourceName()); source != "" {
+			return source
+		}
+	}
+
+	if named, ok := s.forex.(sourceNamer); ok {
+		if source := strings.TrimSpace(named.SourceName()); source != "" {
+			return source
+		}
+	}
+
+	return "External FX API"
 }
 
 func (s *MonitorService) checkC2C(ctx context.Context) {
 	if s.getLastForex() == 0 {
-		log.Println("Skipping C2C check: Forex rate not yet available")
+		slog.Warn("skipping c2c check because forex rate is unavailable", "event", "c2c_check_skipped_missing_forex")
 		return
 	}
 
@@ -433,7 +458,15 @@ func (s *MonitorService) fetchTopPricesWithRetry(ctx context.Context, exchangeNa
 		lastErr = err
 
 		if attempt < maxRetries {
-			log.Printf("⚠️ [%s] Failed to fetch prices for amount %.0f (Attempt %d/%d): %v. Retrying in %v...", exchangeName, amount, attempt+1, maxRetries, err, retryInterval)
+			slog.Warn("failed to fetch prices; retrying",
+				"event", "exchange_fetch_retry",
+				"exchange", exchangeName,
+				"amount", amount,
+				"attempt", attempt+1,
+				"max_attempts", maxRetries,
+				"retry_in", retryInterval.String(),
+				"error", err,
+			)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -444,7 +477,7 @@ func (s *MonitorService) fetchTopPricesWithRetry(ctx context.Context, exchangeNa
 	}
 
 	finalErr := fmt.Errorf("failed to fetch prices for amount %.0f after %d retries: %w", amount, maxRetries, lastErr)
-	log.Printf("❌ [%s] %v", exchangeName, finalErr)
+	slog.Error("exchange fetch failed after retries", "event", "exchange_fetch_failed", "exchange", exchangeName, "amount", amount, "error", finalErr)
 	return nil, finalErr
 }
 
@@ -463,13 +496,13 @@ func (s *MonitorService) persistPricesAndMerchants(ctx context.Context, prices [
 				UpdatedAt:  time.Now(),
 			}
 			if err := s.repo.SaveMerchant(ctx, merchant); err != nil {
-				log.Printf("Failed to save merchant %s: %v", p.Merchant, err)
+				slog.Error("failed to save merchant", "event", "merchant_save_failed", "exchange", p.Exchange, "merchant", p.Merchant, "merchant_id", p.MerchantID, "error", err)
 			}
 		}
 	}
 
 	if err := s.repo.SavePricePoints(ctx, ptrs); err != nil {
-		log.Printf("Failed to save prices: %v", err)
+		slog.Error("failed to save prices", "event", "prices_save_failed", "count", len(ptrs), "error", err)
 	}
 }
 
@@ -565,12 +598,12 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 			<p>Time: %s</p>
 		`, p.Exchange, p.Merchant, p.Side, p.MinAmount, p.MaxAmount, p.PayMethods, p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
 
-		log.Printf("🔥🔥 TRIGGERING ALERT (%s): %s", alertType, subject)
+		slog.Warn("triggering price alert", "event", "price_alert_triggered", "alert_type", alertType, "exchange", p.Exchange, "merchant", p.Merchant, "price", p.Price, "spread", spread)
 
 		go func() {
 			err := s.notifier.Send(ctx, subject, body)
 			if err != nil {
-				log.Printf("Failed to send alert email: %v", err)
+				slog.Error("failed to send alert email", "event", "price_alert_send_failed", "exchange", p.Exchange, "merchant", p.Merchant, "error", err)
 			}
 		}()
 
@@ -588,7 +621,7 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 			TriggerPrice: p.Price,
 			LastAlertAt:  now,
 		}); err != nil {
-			log.Printf("Failed to persist alert state for %s: %v", alertKey, err)
+			slog.Error("failed to persist alert state", "event", "alert_state_persist_failed", "key", alertKey, "error", err)
 		}
 	}
 }
@@ -605,7 +638,7 @@ func (s *MonitorService) ResetAlertState(ctx context.Context, exchange, side str
 		return err
 	}
 
-	log.Printf("Reset alert state for %s", key)
+	slog.Info("reset alert state", "event", "alert_state_reset", "key", key)
 	return nil
 }
 

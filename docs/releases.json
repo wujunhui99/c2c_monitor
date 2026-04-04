@@ -1,0 +1,44 @@
+{
+  "releases": [
+    {
+      "version": "v1.3.0",
+      "released_at": "2026-04-04",
+      "summary": "Moved release notes into docs/releases.json, removed history-contract hardcoding, added structured logs, and introduced explicit schema migrations.",
+      "changes": [
+        "Moved release metadata from Go constants to docs/releases.json and kept /api/changelog driven by that file.",
+        "Exposed supported exchange metadata so the frontend and tests no longer hardcode history response keys.",
+        "Switched core runtime logs to structured JSON and documented a unified jq-based query flow.",
+        "Replaced startup AutoMigrate with explicit versioned schema migrations tracked in schema_migrations."
+      ]
+    },
+    {
+      "version": "v1.2.0",
+      "released_at": "2026-04-04",
+      "summary": "Replaced Yahoo Finance with resilient FX reference sources and added release notes APIs.",
+      "changes": [
+        "Removed the Yahoo Finance forex adapter and switched to open.er-api with HexaRate fallback.",
+        "Added 429, timeout, malformed-response, and fallback-path tests for forex fetching.",
+        "Added /api/changelog so every deployed version can describe what changed."
+      ]
+    },
+    {
+      "version": "v1.1.0",
+      "released_at": "2026-04-04",
+      "summary": "Exposed build version metadata to the frontend.",
+      "changes": [
+        "Added /api/meta for backend version discovery.",
+        "Displayed the running version in the frontend header."
+      ]
+    },
+    {
+      "version": "v1.0.0",
+      "released_at": "2026-04-04",
+      "summary": "Established the monitored exchanges, config validation, and startup flow.",
+      "changes": [
+        "Added the real cmd/monitor startup entrypoint and graceful shutdown.",
+        "Centralized config normalization and supported exchange validation.",
+        "Split the old PRD into docs/ with runbook, architecture, and product specs."
+      ]
+    }
+  ]
+}
