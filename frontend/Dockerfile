@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$TARGETPLATFORM nginx:1.27-alpine
+FROM --platform=$TARGETPLATFORM nginx:1.31-alpine
 
 WORKDIR /usr/share/nginx/html
 
