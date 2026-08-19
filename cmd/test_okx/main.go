@@ -43,19 +43,19 @@ func main() {
 			fmt.Printf("Rank %d: %.2f (Merchant: %s)\n", p.Rank, p.Price, p.Merchant)
 		}
 	}
-	
+
 	// Test 3: Amount = 5000
 	fmt.Println("\n--- Testing OKX Amount=5000 ---")
 	tier5000Prices, err := adapter.GetTopPrices(ctx, "USDT", "CNY", "BUY", 5000)
-    if err != nil {
+	if err != nil {
 		log.Fatalf("Error fetching tier 5000 prices: %v", err)
 	}
-    if len(tier5000Prices) > 0 {
-        fmt.Printf("Best Price (Amount=5000): %.2f\n", tier5000Prices[0].Price)
+	if len(tier5000Prices) > 0 {
+		fmt.Printf("Best Price (Amount=5000): %.2f\n", tier5000Prices[0].Price)
 		for _, p := range tier5000Prices {
 			fmt.Printf("Rank %d: %.2f (Merchant: %s)\n", p.Rank, p.Price, p.Merchant)
 		}
-    } else {
+	} else {
 		log.Println("No prices found for amount=5000")
 	}
 }

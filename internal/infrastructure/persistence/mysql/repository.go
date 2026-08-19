@@ -13,13 +13,13 @@ import (
 // PricePointDAO represents the database schema for C2C prices
 type PricePointDAO struct {
 	ID              int64     `gorm:"primaryKey;autoIncrement"`
-	CreatedAt       time.Time `gorm:"index:idx_query,priority:5"` // Part of composite index
-	Exchange        string    `gorm:"type:varchar(32);index:idx_query,priority:1"`
-	Symbol          string    `gorm:"type:varchar(10)"`
-	Fiat            string    `gorm:"type:varchar(10)"`
-	Side            string    `gorm:"type:varchar(10);index:idx_query,priority:2"`
-	TargetAmount    float64   `gorm:"index:idx_query,priority:3"`
-	Rank            int       `gorm:"index:idx_query,priority:4"`
+	CreatedAt       time.Time `gorm:"index:idx_query,priority:5;index:idx_price_history,priority:7"`
+	Exchange        string    `gorm:"type:varchar(32);index:idx_query,priority:1;index:idx_price_history,priority:1"`
+	Symbol          string    `gorm:"type:varchar(10);index:idx_price_history,priority:2"`
+	Fiat            string    `gorm:"type:varchar(10);index:idx_price_history,priority:3"`
+	Side            string    `gorm:"type:varchar(10);index:idx_query,priority:2;index:idx_price_history,priority:4"`
+	TargetAmount    float64   `gorm:"index:idx_query,priority:3;index:idx_price_history,priority:5"`
+	Rank            int       `gorm:"index:idx_query,priority:4;index:idx_price_history,priority:6"`
 	Price           float64   `gorm:"type:decimal(18,8)"`
 	MerchantID      string    `gorm:"type:varchar(64);index"`
 	PayMethods      string    `gorm:"type:text"`
@@ -101,9 +101,9 @@ func (MerchantDAO) TableName() string {
 // ForexRateDAO represents the database schema for Forex rates
 type ForexRateDAO struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement"`
-	CreatedAt time.Time `gorm:"index:idx_time"`
+	CreatedAt time.Time `gorm:"index:idx_time;index:idx_forex_pair_time,priority:2"`
 	Source    string    `gorm:"type:varchar(32)"`
-	Pair      string    `gorm:"type:varchar(10)"`
+	Pair      string    `gorm:"type:varchar(10);index:idx_forex_pair_time,priority:1"`
 	Rate      float64   `gorm:"type:decimal(18,6)"`
 }
 

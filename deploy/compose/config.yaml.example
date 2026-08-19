@@ -1,23 +1,31 @@
 app:
   # Backend listens inside container. Exposed port is controlled by frontend/nginx only.
   port: 8001
+  # Required through C2C_APP_ADMIN_TOKEN in the Compose environment.
+  admin_token: ""
+  # The production frontend uses same-origin nginx proxying, so no CORS origins are needed.
+  allowed_origins: []
 
 monitor:
   c2c_interval_minutes: 6
   forex_interval_hours: 1
+  forex_max_age_hours: 6
   alert_threshold_percent: 0.1
   target_amounts: [0, 30, 50, 200, 500, 1000]
   exchanges: ["Binance", "Gate", "OKX"]
 
 database:
   # IMPORTANT: use mysql service name in docker network, not 127.0.0.1.
-  dsn: "user:password@tcp(mysql:3306)/c2c_monitor?charset=utf8mb4&parseTime=True&loc=Local"
+  # Compose supplies this value through C2C_DATABASE_DSN.
+  dsn: ""
 
 notification:
   email:
     smtp_host: "smtp.qq.com"
     smtp_port: 587
-    username: "your_email@example.com"
-    password: "your_smtp_password"
-    from: "your_email@example.com"
-    to: ["344686925@qq.com"]
+    # Username, password, and From are overridden through Compose environment variables.
+    username: ""
+    password: ""
+    from: ""
+    # Required: edit the copied config.yaml with the real recipients.
+    to: []

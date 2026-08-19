@@ -14,37 +14,26 @@ You need to have one of the following installed:
 
 ### Instructions
 
-1.  **Navigate to the `frontend` directory:**
+From the repository root, start the no-cache development server:
 
-    ```bash
-    cd /Users/junhui/code/go_code/crypto_coin/c2c_monitor/frontend
-    ```
+```bash
+make start-frontend
+```
 
-2.  **Start a simple web server.** Choose one of the options below.
+Alternatively, serve the directory directly:
 
-    **Option 1: Using Python**
-    This is the simplest method if you have Python installed.
+```bash
+python3 frontend/dev_server.py 8080 frontend
+```
 
-    ```bash
-    # For Python 3
-    python3 -m http.server 8080
-    ```
+Open:
 
-    **Option 2: Using Node.js (with `live-server`)**
-    `live-server` is a great tool that automatically reloads the page when you make changes to the code.
-
-    ```bash
-    # If you don't have live-server installed, this command will download and run it.
-    npx live-server --port=8080
-    ```
-
-3.  **Open the application in your browser:**
-
-    Once the server is running, open your web browser and go to:
-
-    [http://localhost:8080](http://localhost:8080)
+[http://localhost:8080](http://localhost:8080)
 
 ### Configuration
 
--   The backend API endpoint is configured in `js/config.js`. By default, it should point to `http://localhost:8001`.
--   Ensure the Go backend application is running so the frontend can fetch data.
+- Copy `js/config.js.example` to the ignored `js/config.js` file when not using `make start-frontend`.
+- The default development API endpoint is `http://localhost:8001`.
+- Production Compose mounts `deploy/compose/frontend-config.js`, which uses the same-origin Nginx API proxy.
+- Saving configuration and resetting alerts require the backend administrator token.
+- The token is stored only in `sessionStorage`, not local storage or source files.

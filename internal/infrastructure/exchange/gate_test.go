@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -202,6 +203,40 @@ func TestGateAdapterGetTopPricesLowestAmountNoFilter(t *testing.T) {
 	assertCloseFloat(t, point.Price, 6.92)
 	if point.Merchant != "Merchant 2" {
 		t.Fatalf("expected Merchant 2, got %q", point.Merchant)
+	}
+}
+
+func TestGateAdapterReturnsHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	adapter := &GateAdapter{
+		client:   &http.Client{Timeout: 2 * time.Second},
+		endpoint: server.URL,
+	}
+
+	_, err := adapter.GetTopPrices(context.Background(), "USDT", "CNY", "BUY", 100)
+	if err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatalf("expected Gate HTTP error, got %v", err)
+	}
+}
+
+func TestGateAdapterRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, strings.Repeat("x", int(maxExchangeResponseBytes)+1))
+	}))
+	defer server.Close()
+
+	adapter := &GateAdapter{
+		client:   &http.Client{Timeout: 2 * time.Second},
+		endpoint: server.URL,
+	}
+
+	_, err := adapter.GetTopPrices(context.Background(), "USDT", "CNY", "BUY", 100)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
 	}
 }
 

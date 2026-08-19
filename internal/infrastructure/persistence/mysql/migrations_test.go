@@ -33,8 +33,8 @@ func TestRunMigrationsCreatesSchemaAndTracksVersion(t *testing.T) {
 	if err := db.Model(&SchemaMigrationDAO{}).Count(&count).Error; err != nil {
 		t.Fatalf("failed to count schema_migrations rows: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 applied migration, got %d", count)
+	if count != int64(len(migrations)) {
+		t.Fatalf("expected %d applied migrations, got %d", len(migrations), count)
 	}
 
 	if err := repo.RunMigrations(context.Background()); err != nil {
@@ -43,7 +43,19 @@ func TestRunMigrationsCreatesSchemaAndTracksVersion(t *testing.T) {
 	if err := db.Model(&SchemaMigrationDAO{}).Count(&count).Error; err != nil {
 		t.Fatalf("failed to count schema_migrations rows after rerun: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected migration rerun to stay idempotent, got %d rows", count)
+	if count != int64(len(migrations)) {
+		t.Fatalf("expected migration rerun to stay idempotent with %d rows, got %d", len(migrations), count)
+	}
+
+	for _, index := range []struct {
+		model any
+		name  string
+	}{
+		{model: &PricePointDAO{}, name: "idx_price_history"},
+		{model: &ForexRateDAO{}, name: "idx_forex_pair_time"},
+	} {
+		if !db.Migrator().HasIndex(index.model, index.name) {
+			t.Fatalf("expected index %s to exist", index.name)
+		}
 	}
 }

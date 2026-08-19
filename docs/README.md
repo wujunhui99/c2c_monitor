@@ -9,7 +9,7 @@
 3. [`architecture/overview.md`](architecture/overview.md)
 4. [`architecture/external-dependencies.md`](architecture/external-dependencies.md)
 5. [`operations/runbook.md`](operations/runbook.md)
-6. [`exec-plans/active/2026-04-harness-foundation.md`](exec-plans/active/2026-04-harness-foundation.md)
+6. [`exec-plans/active/2026-08-reliability-security.md`](exec-plans/active/2026-08-reliability-security.md)
 7. [`releases.json`](releases.json)
 
 ## 文档职责

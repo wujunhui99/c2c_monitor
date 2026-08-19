@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -24,8 +26,11 @@ type MonitorService struct {
 	forex              domain.IForex
 	notifier           domain.INotifier
 	lastForex          float64
+	lastForexAt        time.Time
 	cfgMu              sync.RWMutex
 	forexMu            sync.RWMutex
+	scheduleMu         sync.Mutex
+	configChanged      chan struct{}
 	alertCache         map[string]time.Time             // To prevent spamming arbitrage alerts
 	errorAlertCache    map[string]time.Time             // To prevent spamming error alerts
 	triggeredLowPrices map[string]float64               // To store the lowest triggered price for dynamic threshold
@@ -51,6 +56,7 @@ func NewMonitorService(
 		exchanges:          exchanges,
 		forex:              forex,
 		notifier:           notifier,
+		configChanged:      make(chan struct{}),
 		alertCache:         make(map[string]time.Time),
 		errorAlertCache:    make(map[string]time.Time),
 		triggeredLowPrices: make(map[string]float64),
@@ -80,16 +86,48 @@ func (s *MonitorService) getConfigSnapshot() config.MonitorConfig {
 	return cloneMonitorConfig(s.cfg)
 }
 
-func (s *MonitorService) setLastForex(rate float64) {
+func (s *MonitorService) setLastForex(rate float64, observedAt time.Time) {
 	s.forexMu.Lock()
 	s.lastForex = rate
+	s.lastForexAt = observedAt
 	s.forexMu.Unlock()
 }
 
-func (s *MonitorService) getLastForex() float64 {
+func (s *MonitorService) getLastForex() (float64, time.Time) {
 	s.forexMu.RLock()
 	defer s.forexMu.RUnlock()
-	return s.lastForex
+	return s.lastForex, s.lastForexAt
+}
+
+func (s *MonitorService) usableForex(now time.Time) (float64, error) {
+	rate, observedAt := s.getLastForex()
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate <= 0 || observedAt.IsZero() {
+		return 0, fmt.Errorf("forex rate is unavailable")
+	}
+
+	cfg := s.getConfigSnapshot()
+	maxAge := time.Duration(cfg.ForexMaxAgeHours) * time.Hour
+	if maxAge <= 0 {
+		maxAge = 6 * time.Hour
+	}
+	if age := now.Sub(observedAt); age > maxAge {
+		return 0, fmt.Errorf("forex rate is stale: age %s exceeds %s", age.Round(time.Second), maxAge)
+	}
+
+	return rate, nil
+}
+
+func (s *MonitorService) configChangeSignal() <-chan struct{} {
+	s.scheduleMu.Lock()
+	defer s.scheduleMu.Unlock()
+	return s.configChanged
+}
+
+func (s *MonitorService) notifyConfigChanged() {
+	s.scheduleMu.Lock()
+	close(s.configChanged)
+	s.configChanged = make(chan struct{})
+	s.scheduleMu.Unlock()
 }
 
 func (s *MonitorService) syncConfiguredServiceStatuses(exchangeNames []string) {
@@ -132,34 +170,46 @@ func (s *MonitorService) syncConfiguredServiceStatuses(exchangeNames []string) {
 }
 
 func (s *MonitorService) updateServiceStatus(name string, err error) {
+	if err != nil {
+		s.updateServiceHealth(name, "Error", err.Error())
+		return
+	}
+	s.updateServiceHealth(name, "OK", "")
+}
+
+func (s *MonitorService) updateServiceHealth(name, statusValue, message string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if _, exists := s.serviceStatus[name]; !exists {
 		s.serviceStatus[name] = &domain.ServiceStatus{Name: name}
 	}
 
 	status := s.serviceStatus[name]
+	previousStatus := status.Status
 	status.LastCheck = time.Now()
+	status.Status = statusValue
+	status.Message = message
 
-	if err != nil {
-		// If transitioning from OK to Error, send alert
-		if status.Status != "Error" {
-			status.Status = "Error"
-			status.Message = err.Error()
-			s.logServiceDown(name, err)
-			// Send Alert (Async)
-			go s.sendErrorAlert(name, err)
-		} else {
-			// Update error message but don't alert again
-			status.Message = err.Error()
+	shouldSendErrorAlert := false
+	if statusValue != "Error" {
+		delete(s.errorAlertCache, name)
+	} else if statusValue == "Error" {
+		if _, exists := s.errorAlertCache[name]; !exists {
+			s.errorAlertCache[name] = time.Now()
+			shouldSendErrorAlert = true
 		}
-	} else {
-		if status.Status == "Error" {
-			slog.Info("service recovered", "event", "service_recovered", "service", name)
-		}
-		status.Status = "OK"
-		status.Message = ""
+	}
+	s.mu.Unlock()
+
+	if statusValue == "Error" && previousStatus != "Error" {
+		err := fmt.Errorf("%s", message)
+		s.logServiceDown(name, err)
+	}
+	if shouldSendErrorAlert {
+		go s.sendErrorAlert(name, fmt.Errorf("%s", message))
+	}
+	if statusValue == "OK" && previousStatus != "" && previousStatus != "Pending" && previousStatus != "OK" {
+		slog.Info("service recovered", "event", "service_recovered", "service", name)
 	}
 }
 
@@ -195,11 +245,15 @@ func (s *MonitorService) sendErrorAlert(name string, err error) {
 		<p><i>Alert sent once. Will not alert again until service recovers and fails again.</i></p>
 		<br/>
 		<p>Time: %s</p>
-	`, name, err, time.Now().Format(time.RFC3339))
+	`, html.EscapeString(name), html.EscapeString(err.Error()), time.Now().Format(time.RFC3339))
 
 	slog.Warn("sending error alert", "event", "error_alert_sending", "service", name, "subject", subject)
 	if notifErr := s.notifier.Send(context.Background(), subject, body); notifErr != nil {
 		slog.Error("failed to send error alert email", "event", "error_alert_send_failed", "service", name, "error", notifErr)
+		s.mu.Lock()
+		delete(s.errorAlertCache, name)
+		s.mu.Unlock()
+		return
 	}
 }
 
@@ -226,7 +280,7 @@ func (s *MonitorService) loadPersistedAlertStates(ctx context.Context) {
 	defer s.mu.Unlock()
 
 	for _, state := range states {
-		key := fmt.Sprintf("%s-%s-%.0f", state.Exchange, state.Side, state.TargetAmount)
+		key := domain.AlertStateKey(state.Exchange, state.Side, state.TargetAmount)
 		s.triggeredLowPrices[key] = state.TriggerPrice
 		if !state.LastAlertAt.IsZero() {
 			s.alertCache[key] = state.LastAlertAt
@@ -246,49 +300,70 @@ func (s *MonitorService) Start(ctx context.Context) {
 	// Initial Forex fetch
 	s.updateForex(ctx)
 
-	// Tickers
-	// Forex can remain on a fixed ticker as it's infrequent (1h)
-	cfg := s.getConfigSnapshot()
-	forexIntervalHours := cfg.ForexIntervalHours
-	if forexIntervalHours <= 0 {
-		forexIntervalHours = 1
-	}
-	forexTicker := time.NewTicker(time.Duration(forexIntervalHours) * time.Hour)
+	go s.runC2CLoop(ctx)
+	s.runForexLoop(ctx)
+	slog.Info("monitor service stopping", "event", "monitor_service_stopping")
+}
 
-	// Run C2C check immediately on start
-	go s.checkC2C(ctx)
+func (s *MonitorService) runC2CLoop(ctx context.Context) {
+	s.checkC2C(ctx)
 
-	// C2C Loop with Random Jitter
-	go func() {
-		for {
-			// Calculate next interval with jitter
-			nextInterval := s.getNextC2CDuration()
-			timer := time.NewTimer(nextInterval)
-			slog.Info("scheduled next c2c check", "event", "c2c_check_scheduled", "delay", nextInterval.String())
+	for ctx.Err() == nil {
+		configChanged := s.configChangeSignal()
+		nextInterval := s.getNextC2CDuration()
+		timer := time.NewTimer(nextInterval)
+		slog.Info("scheduled next c2c check", "event", "c2c_check_scheduled", "delay", nextInterval.String())
 
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-				s.checkC2C(ctx)
-			}
-		}
-	}()
-
-	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("monitor service stopping", "event", "monitor_service_stopping")
+			stopTimer(timer)
 			return
-		case <-forexTicker.C:
+		case <-configChanged:
+			stopTimer(timer)
+			continue
+		case <-timer.C:
+			s.checkC2C(ctx)
+		}
+	}
+}
+
+func (s *MonitorService) runForexLoop(ctx context.Context) {
+	for ctx.Err() == nil {
+		configChanged := s.configChangeSignal()
+		cfg := s.getConfigSnapshot()
+		interval := time.Duration(cfg.ForexIntervalHours) * time.Hour
+		if interval <= 0 {
+			interval = time.Hour
+		}
+		timer := time.NewTimer(interval)
+
+		select {
+		case <-ctx.Done():
+			stopTimer(timer)
+			return
+		case <-configChanged:
+			stopTimer(timer)
+			continue
+		case <-timer.C:
 			s.updateForex(ctx)
+		}
+	}
+}
+
+func stopTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
 		}
 	}
 }
 
 func (s *MonitorService) updateForex(ctx context.Context) {
 	rate, err := s.forex.GetRate(ctx, "USD", "CNY")
+	if err == nil && (math.IsNaN(rate) || math.IsInf(rate, 0) || rate <= 0) {
+		err = fmt.Errorf("forex source returned invalid rate")
+	}
 
 	// Update Status
 	if err != nil {
@@ -301,20 +376,37 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 		slog.Error("failed to fetch forex rate", "event", "forex_fetch_failed", "pair", "USDCNY", "error", err)
 		// Try to load latest from DB if fetch fails
 		latest, dbErr := s.repo.GetLatestForexRate(ctx, "USDCNY")
-		if dbErr == nil && latest != nil {
-			s.setLastForex(latest.Rate)
-			slog.Warn("using cached forex rate from database", "event", "forex_cache_used", "pair", "USDCNY", "rate", latest.Rate, "source", latest.Source)
+		if dbErr != nil {
+			slog.Error("failed to load cached forex rate", "event", "forex_cache_load_failed", "pair", "USDCNY", "error", dbErr)
+			return
+		}
+		if latest != nil {
+			if math.IsNaN(latest.Rate) || math.IsInf(latest.Rate, 0) || latest.Rate <= 0 {
+				slog.Error("cached forex rate is invalid", "event", "forex_cache_invalid", "pair", "USDCNY", "rate", latest.Rate)
+				return
+			}
+			maxAge := time.Duration(s.getConfigSnapshot().ForexMaxAgeHours) * time.Hour
+			if maxAge <= 0 {
+				maxAge = 6 * time.Hour
+			}
+			if latest.CreatedAt.IsZero() || time.Since(latest.CreatedAt) > maxAge {
+				slog.Error("cached forex rate is stale", "event", "forex_cache_stale", "pair", "USDCNY", "observed_at", latest.CreatedAt, "max_age", maxAge.String())
+				return
+			}
+			s.setLastForex(latest.Rate, latest.CreatedAt)
+			slog.Warn("using cached forex rate from database", "event", "forex_cache_used", "pair", "USDCNY", "rate", latest.Rate, "source", latest.Source, "observed_at", latest.CreatedAt)
 		}
 		return
 	}
 
 	sourceName := s.forexSourceName()
-	s.setLastForex(rate)
+	now := time.Now()
+	s.setLastForex(rate, now)
 	slog.Info("updated forex rate", "event", "forex_updated", "pair", "USDCNY", "rate", rate, "source", sourceName)
 
 	// Save to DB
 	err = s.repo.SaveForexRate(ctx, &domain.ForexRate{
-		CreatedAt: time.Now(),
+		CreatedAt: now,
 		Source:    sourceName,
 		Pair:      "USDCNY",
 		Rate:      rate,
@@ -348,16 +440,12 @@ func (s *MonitorService) forexSourceName() string {
 }
 
 func (s *MonitorService) checkC2C(ctx context.Context) {
-	if s.getLastForex() == 0 {
-		slog.Warn("skipping c2c check because forex rate is unavailable", "event", "c2c_check_skipped_missing_forex")
-		return
+	if _, err := s.usableForex(time.Now()); err != nil {
+		s.updateServiceStatus(forexServiceName, err)
+		slog.Warn("collecting c2c prices without opportunity alerts because forex rate is unusable", "event", "c2c_alerts_paused_forex", "error", err)
 	}
 
 	cfg := s.getConfigSnapshot()
-	configuredExchanges := make(map[string]struct{}, len(cfg.Exchanges))
-	for _, name := range cfg.Exchanges {
-		configuredExchanges[strings.ToLower(name)] = struct{}{}
-	}
 
 	type c2cJob struct {
 		name     string
@@ -366,13 +454,24 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 	}
 
 	var jobs []c2cJob
-	targetedExchanges := make(map[string]struct{})
+	type exchangeResult struct {
+		attempted int
+		succeeded int
+		empty     int
+		failed    int
+		errors    []string
+	}
+	results := make(map[string]*exchangeResult, len(cfg.Exchanges))
 
-	for name, exchange := range s.exchanges {
-		if _, ok := configuredExchanges[strings.ToLower(name)]; !ok {
+	for _, name := range cfg.Exchanges {
+		result := &exchangeResult{attempted: len(cfg.TargetAmounts)}
+		results[name] = result
+		exchange, ok := s.exchanges[name]
+		if !ok {
+			result.failed = result.attempted
+			result.errors = append(result.errors, "adapter is not configured")
 			continue
 		}
-		targetedExchanges[name] = struct{}{}
 		for _, amount := range cfg.TargetAmounts {
 			jobs = append(jobs, c2cJob{
 				name:     name,
@@ -382,18 +481,11 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 		}
 	}
 
-	if len(jobs) == 0 {
-		return
-	}
-
 	const maxConcurrentFetches = 6
 	sem := make(chan struct{}, maxConcurrentFetches)
 	var wg sync.WaitGroup
 
 	var resultMu sync.Mutex
-	successByExchange := make(map[string]bool, len(targetedExchanges))
-	errByExchange := make(map[string]error, len(targetedExchanges))
-
 	for _, j := range jobs {
 		job := j
 		wg.Add(1)
@@ -410,18 +502,24 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 			prices, err := s.fetchTopPricesWithRetry(ctx, job.name, job.exchange, job.amount)
 			if err != nil {
 				resultMu.Lock()
-				if _, exists := errByExchange[job.name]; !exists {
-					errByExchange[job.name] = err
-				}
+				results[job.name].failed++
+				results[job.name].errors = append(results[job.name].errors, fmt.Sprintf("%.4g: %v", job.amount, err))
 				resultMu.Unlock()
 				return
 			}
 
 			resultMu.Lock()
-			successByExchange[job.name] = true
+			if len(prices) == 0 {
+				results[job.name].empty++
+			} else {
+				results[job.name].succeeded++
+			}
 			resultMu.Unlock()
 
 			if len(prices) == 0 {
+				return
+			}
+			if !s.collectionTargetConfigured(job.name, job.amount) {
 				return
 			}
 
@@ -432,23 +530,79 @@ func (s *MonitorService) checkC2C(ctx context.Context) {
 
 	wg.Wait()
 
-	for exchangeName := range targetedExchanges {
-		if successByExchange[exchangeName] {
-			s.updateServiceStatus(exchangeName, nil)
+	if ctx.Err() != nil {
+		return
+	}
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	if !sameCollectionScope(cfg, s.cfg) {
+		slog.Info("discarding c2c service status from superseded config", "event", "c2c_status_discarded_config_changed")
+		return
+	}
+
+	for exchangeName, result := range results {
+		switch {
+		case result.succeeded == result.attempted:
+			s.updateServiceHealth(exchangeName, "OK", "")
+		case result.succeeded > 0:
+			message := fmt.Sprintf("%d/%d amount tiers returned data; %d failed; %d empty", result.succeeded, result.attempted, result.failed, result.empty)
+			if len(result.errors) > 0 {
+				message += ": " + strings.Join(result.errors, "; ")
+			}
+			s.updateServiceHealth(exchangeName, "Degraded", message)
+		default:
+			message := fmt.Sprintf("no amount tiers returned data; %d failed; %d empty", result.failed, result.empty)
+			if len(result.errors) > 0 {
+				message += ": " + strings.Join(result.errors, "; ")
+			}
+			s.updateServiceHealth(exchangeName, "Error", message)
 			continue
-		}
-		if err, ok := errByExchange[exchangeName]; ok {
-			s.updateServiceStatus(exchangeName, err)
 		}
 	}
 }
 
+func (s *MonitorService) collectionTargetConfigured(exchangeName string, amount float64) bool {
+	cfg := s.getConfigSnapshot()
+	exchangeConfigured := false
+	for _, configuredExchange := range cfg.Exchanges {
+		if configuredExchange == exchangeName {
+			exchangeConfigured = true
+			break
+		}
+	}
+	if !exchangeConfigured {
+		return false
+	}
+	for _, configuredAmount := range cfg.TargetAmounts {
+		if configuredAmount == amount {
+			return true
+		}
+	}
+	return false
+}
+
+func sameCollectionScope(left, right config.MonitorConfig) bool {
+	if len(left.Exchanges) != len(right.Exchanges) || len(left.TargetAmounts) != len(right.TargetAmounts) {
+		return false
+	}
+	for index := range left.Exchanges {
+		if left.Exchanges[index] != right.Exchanges[index] {
+			return false
+		}
+	}
+	for index := range left.TargetAmounts {
+		if left.TargetAmounts[index] != right.TargetAmounts[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *MonitorService) fetchTopPricesWithRetry(ctx context.Context, exchangeName string, exchange domain.IExchange, amount float64) ([]domain.PricePoint, error) {
-	maxRetries := 3
-	retryInterval := 90 * time.Second
+	const maxAttempts = 3
 	var lastErr error
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		prices, err := exchange.GetTopPrices(attemptCtx, "USDT", "CNY", "BUY", amount)
 		cancel()
@@ -457,13 +611,14 @@ func (s *MonitorService) fetchTopPricesWithRetry(ctx context.Context, exchangeNa
 		}
 		lastErr = err
 
-		if attempt < maxRetries {
+		if attempt < maxAttempts {
+			retryInterval := time.Duration(1<<(attempt-1)) * 2 * time.Second
 			slog.Warn("failed to fetch prices; retrying",
 				"event", "exchange_fetch_retry",
 				"exchange", exchangeName,
 				"amount", amount,
-				"attempt", attempt+1,
-				"max_attempts", maxRetries,
+				"attempt", attempt,
+				"max_attempts", maxAttempts,
 				"retry_in", retryInterval.String(),
 				"error", err,
 			)
@@ -471,12 +626,11 @@ func (s *MonitorService) fetchTopPricesWithRetry(ctx context.Context, exchangeNa
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-time.After(retryInterval):
-				continue
 			}
 		}
 	}
 
-	finalErr := fmt.Errorf("failed to fetch prices for amount %.0f after %d retries: %w", amount, maxRetries, lastErr)
+	finalErr := fmt.Errorf("failed to fetch prices for amount %.4g after %d attempts: %w", amount, maxAttempts, lastErr)
 	slog.Error("exchange fetch failed after retries", "event", "exchange_fetch_failed", "exchange", exchangeName, "amount", amount, "error", finalErr)
 	return nil, finalErr
 }
@@ -532,14 +686,14 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 		return
 	}
 
-	forexRate := s.getLastForex()
-	if forexRate <= 0 {
+	forexRate, err := s.usableForex(time.Now())
+	if err != nil {
 		return
 	}
 	cfg := s.getConfigSnapshot()
 
 	spread := (forexRate - p.Price) / forexRate * 100
-	alertKey := fmt.Sprintf("%s-%s-%.0f", p.Exchange, p.Side, p.TargetAmount)
+	alertKey := domain.AlertStateKey(p.Exchange, p.Side, p.TargetAmount)
 
 	s.mu.RLock()
 	triggeredPrice, isTriggered := s.triggeredLowPrices[alertKey]
@@ -596,23 +750,14 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 			<p><i>Threshold Mode: %s</i></p>
 			<br/>
 			<p>Time: %s</p>
-		`, p.Exchange, p.Merchant, p.Side, p.MinAmount, p.MaxAmount, p.PayMethods, p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
+		`, html.EscapeString(p.Exchange), html.EscapeString(p.Merchant), html.EscapeString(p.Side), p.MinAmount, p.MaxAmount, html.EscapeString(p.PayMethods), p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
 
 		slog.Warn("triggering price alert", "event", "price_alert_triggered", "alert_type", alertType, "exchange", p.Exchange, "merchant", p.Merchant, "price", p.Price, "spread", spread)
 
-		go func() {
-			err := s.notifier.Send(ctx, subject, body)
-			if err != nil {
-				slog.Error("failed to send alert email", "event", "price_alert_send_failed", "exchange", p.Exchange, "merchant", p.Merchant, "error", err)
-			}
-		}()
-
-		// Update State
-		s.mu.Lock()
-		s.alertCache[alertKey] = now
-		// Always update the lowest price if we alerted
-		s.triggeredLowPrices[alertKey] = p.Price
-		s.mu.Unlock()
+		if err := s.notifier.Send(ctx, subject, body); err != nil {
+			slog.Error("failed to send alert email", "event", "price_alert_send_failed", "exchange", p.Exchange, "merchant", p.Merchant, "error", err)
+			return
+		}
 
 		if err := s.repo.UpsertAlertState(ctx, &domain.AlertState{
 			Exchange:     p.Exchange,
@@ -623,20 +768,25 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 		}); err != nil {
 			slog.Error("failed to persist alert state", "event", "alert_state_persist_failed", "key", alertKey, "error", err)
 		}
+
+		s.mu.Lock()
+		s.alertCache[alertKey] = now
+		s.triggeredLowPrices[alertKey] = p.Price
+		s.mu.Unlock()
 	}
 }
 
 // ResetAlertState resets the dynamic threshold for a specific market
 func (s *MonitorService) ResetAlertState(ctx context.Context, exchange, side string, amount float64) error {
-	key := fmt.Sprintf("%s-%s-%.0f", exchange, side, amount)
+	key := domain.AlertStateKey(exchange, side, amount)
+	if err := s.repo.DeleteAlertState(ctx, exchange, side, amount); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	delete(s.triggeredLowPrices, key)
 	delete(s.alertCache, key)
 	s.mu.Unlock()
-
-	if err := s.repo.DeleteAlertState(ctx, exchange, side, amount); err != nil {
-		return err
-	}
 
 	slog.Info("reset alert state", "event", "alert_state_reset", "key", key)
 	return nil
@@ -687,5 +837,11 @@ func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) error {
 	s.cfgMu.Unlock()
 
 	s.syncConfiguredServiceStatuses(normalizedCfg.Exchanges)
+	s.notifyConfigChanged()
 	return nil
+}
+
+func (s *MonitorService) ReadinessError() error {
+	_, err := s.usableForex(time.Now())
+	return err
 }

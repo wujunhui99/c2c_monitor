@@ -42,4 +42,5 @@ vendor/
 .env
 secret.tex
 config/config.yaml
+deploy/compose/config.yaml
 frontend/js/config.js

@@ -5,13 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>C2C Arbitrage Monitor</title>
     <link rel="stylesheet" href="/css/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"
+        integrity="sha384-BQKzmHvQLMCAnL3UtDBA1Al5tFjsCz1wrMlIUA1wkzo14DYkRWjywW+p9pCj0cwd"
+        crossorigin="anonymous"
+    ></script>
 </head>
 <body>
 
 <div class="container">
     <header>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="header-main">
             <div class="header-title-group">
                 <h1>C2C Price Monitor</h1>
                 <a href="/release-notes.html" target="_blank" rel="noreferrer" class="version-link">
@@ -63,18 +67,25 @@
                 When an alert is triggered, the threshold switches to "Lower than Previous Trigger Price". 
                 Resetting an alert reverts it to the standard percentage spread threshold.
             </p>
-            <table id="alert-status-table" style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="background: #f8f9fa; text-align: left;">
-                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Market (Exchange-Side-Amount)</th>
-                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Trigger Price (CNY)</th>
-                        <th style="padding: 10px; border-bottom: 2px solid #eee;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Populated by JS -->
-                </tbody>
-            </table>
+            <div class="alert-table-wrap">
+                <table id="alert-status-table">
+                    <colgroup>
+                        <col class="market-column">
+                        <col class="price-column">
+                        <col class="action-column">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Market (Exchange-Side-Amount)</th>
+                            <th>Trigger Price (CNY)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -90,6 +101,16 @@
                 <label for="forex-interval">Forex Poll Interval (hours)</label>
                 <input type="number" id="forex-interval" min="1">
             </div>
+            <div class="form-group">
+                <label for="forex-max-age">Forex Maximum Age (hours)</label>
+                <input type="number" id="forex-max-age" min="1">
+            </div>
+
+            <h3>Administrator</h3>
+            <div class="form-group">
+                <label for="admin-token">Admin Token</label>
+                <input type="password" id="admin-token" autocomplete="off" spellcheck="false">
+            </div>
 
             <h3>Target Amounts (CNY)</h3>
             <div class="form-group">
@@ -97,7 +118,7 @@
                     <!-- Populated by JS -->
                 </div>
                 <div class="add-amount-group">
-                    <input type="number" id="new-amount" placeholder="Enter amount (e.g., 500)">
+                    <input type="number" id="new-amount" min="0" step="any" placeholder="Enter amount (e.g., 500)">
                     <button id="add-amount-btn" class="primary-btn" style="padding: 8px 15px;">Add</button>
                 </div>
             </div>

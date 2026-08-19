@@ -8,7 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const initialSchemaMigration = "2026040401_initial_schema"
+const (
+	initialSchemaMigration    = "2026040401_initial_schema"
+	reliabilityIndexMigration = "2026081301_reliability_indexes"
+)
 
 type SchemaMigrationDAO struct {
 	ID        int64     `gorm:"primaryKey;autoIncrement"`
@@ -30,6 +33,12 @@ var migrations = []Migration{
 		Name: initialSchemaMigration,
 		Up: func(tx *gorm.DB) error {
 			return runSchemaAutoMigrate(tx)
+		},
+	},
+	{
+		Name: reliabilityIndexMigration,
+		Up: func(tx *gorm.DB) error {
+			return createReliabilityIndexes(tx)
 		},
 	},
 }
@@ -73,4 +82,24 @@ func migrationApplied(db *gorm.DB, name string) (bool, error) {
 		return false, fmt.Errorf("query migration %s: %w", name, err)
 	}
 	return count > 0, nil
+}
+
+func createReliabilityIndexes(db *gorm.DB) error {
+	indexes := []struct {
+		model any
+		name  string
+	}{
+		{model: &PricePointDAO{}, name: "idx_price_history"},
+		{model: &ForexRateDAO{}, name: "idx_forex_pair_time"},
+	}
+
+	for _, index := range indexes {
+		if db.Migrator().HasIndex(index.model, index.name) {
+			continue
+		}
+		if err := db.Migrator().CreateIndex(index.model, index.name); err != nil {
+			return fmt.Errorf("create index %s: %w", index.name, err)
+		}
+	}
+	return nil
 }

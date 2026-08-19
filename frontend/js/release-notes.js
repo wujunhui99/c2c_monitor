@@ -25,21 +25,34 @@ async function loadReleaseNotes() {
             return;
         }
 
-        listEl.innerHTML = releases.map(release => {
+        const fragment = document.createDocumentFragment();
+        releases.forEach(release => {
             const isCurrent = release.version === meta.version;
-            const changes = (release.changes || [])
-                .map(change => `<li>${escapeHTML(change)}</li>`)
-                .join('');
+            const section = document.createElement('section');
+            section.className = `release-card${isCurrent ? ' current' : ''}`;
 
-            return `
-                <section class="release-card${isCurrent ? ' current' : ''}">
-                    <h2>${escapeHTML(release.version)}</h2>
-                    <div class="release-date">${escapeHTML(release.released_at || 'unknown date')}</div>
-                    <p class="release-summary">${escapeHTML(release.summary || '')}</p>
-                    <ul>${changes}</ul>
-                </section>
-            `;
-        }).join('');
+            const title = document.createElement('h2');
+            title.textContent = release.version || 'unknown version';
+
+            const date = document.createElement('div');
+            date.className = 'release-date';
+            date.textContent = release.released_at || 'unknown date';
+
+            const summary = document.createElement('p');
+            summary.className = 'release-summary';
+            summary.textContent = release.summary || '';
+
+            const changes = document.createElement('ul');
+            (release.changes || []).forEach(change => {
+                const item = document.createElement('li');
+                item.textContent = change;
+                changes.appendChild(item);
+            });
+
+            section.append(title, date, summary, changes);
+            fragment.appendChild(section);
+        });
+        listEl.replaceChildren(fragment);
 
         stateEl.hidden = true;
         listEl.hidden = false;
@@ -47,13 +60,4 @@ async function loadReleaseNotes() {
         console.error('Error loading release notes:', error);
         stateEl.textContent = 'Release notes are temporarily unavailable.';
     }
-}
-
-function escapeHTML(value) {
-    return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
 }

@@ -1,5 +1,8 @@
 # Kubernetes Placeholder
 
+Kubernetes deployment is not currently production-ready. The supported deployment path
+is `deploy/compose/`.
+
 Planned structure:
 
 - `base/`: reusable manifests (`Deployment`, `Service`, `ConfigMap`, `Secret` references)
@@ -8,4 +11,6 @@ Planned structure:
 
 Suggested next step:
 
-Generate initial Kustomize files in `base/` and wire `overlays/dev|prod`.
+Generate initial Kustomize files in `base/`, use Secret references for the administrator,
+database, and SMTP credentials, and wire liveness to `/healthz` and readiness to
+`/readyz`.

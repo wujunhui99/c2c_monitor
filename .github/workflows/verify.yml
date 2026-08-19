@@ -1,0 +1,68 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      MYSQL_ROOT_PASSWORD: local-root-password
+      MYSQL_USER: c2c_monitor
+      MYSQL_PASSWORD: local-database-password
+      IMAGE_TAG: test
+      C2C_APP_ADMIN_TOKEN: 0123456789abcdef0123456789abcdef
+      C2C_DATABASE_DSN: c2c_monitor:local-database-password@tcp(mysql:3306)/c2c_monitor?charset=utf8mb4&parseTime=True&loc=UTC
+      SMTP_USERNAME: sender@example.com
+      SMTP_PASSWORD: local-smtp-password
+      SMTP_FROM: sender@example.com
+      FRONTEND_BIND_ADDRESS: 127.0.0.1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run repository doctor
+        run: make doctor
+
+      - name: Run race detector
+        run: go test -race ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check frontend JavaScript
+        run: |
+          node --check frontend/js/app.js
+          node --check frontend/js/release-notes.js
+
+      - name: Validate workflow and config YAML
+        run: ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path) }' .github/workflows/*.yml .github/dependabot.yml config/config.yaml.example deploy/compose/config.yaml.example
+
+      - name: Validate Compose files
+        run: |
+          docker compose -f docker-compose.yaml config --quiet
+          docker compose -f deploy/compose/docker-compose.yml config --quiet
+
+      - name: Build backend image
+        run: docker build -f Dockerfile .
+
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile frontend

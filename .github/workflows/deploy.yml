@@ -1,52 +1,64 @@
 name: Deploy To Ubuntu
 
 on:
-  workflow_run:
-    workflows:
-      - Docker Publish
-    types:
-      - completed
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Full 40-character commit SHA image tag to deploy
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
   group: deploy-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy via SSH
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    environment: production
     steps:
+      - name: Validate image tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if ! [[ "$IMAGE_TAG" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "image_tag must be a full lowercase 40-character commit SHA" >&2
+            exit 1
+          fi
+
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.image_tag }}
 
       - name: Upload compose assets
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ vars.DEPLOY_PORT != '' && vars.DEPLOY_PORT || '22' }}
-          source: "deploy/compose/docker-compose.yml,deploy/compose/frontend-config.js,deploy/compose/nginx.conf,deploy/compose/config.yaml.example"
+          source: "deploy/compose/docker-compose.yml,deploy/compose/frontend-config.js,deploy/compose/nginx.conf,deploy/compose/config.yaml.example,deploy/compose/.env.example"
           target: "/tmp/c2c-monitor-deploy-compose"
           strip_components: 2
 
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ vars.DEPLOY_PORT != '' && vars.DEPLOY_PORT || '22' }}
           script_stop: true
-          envs: GHCR_USERNAME,GHCR_TOKEN
+          envs: GHCR_USERNAME,GHCR_TOKEN,IMAGE_TAG
           command_timeout: 20m
           script: |
             set -euo pipefail
@@ -60,10 +72,15 @@ jobs:
             cp "$TMP_COMPOSE_DIR/frontend-config.js" "$COMPOSE_DIR/frontend-config.js"
             cp "$TMP_COMPOSE_DIR/nginx.conf" "$COMPOSE_DIR/nginx.conf"
             cp "$TMP_COMPOSE_DIR/config.yaml.example" "$COMPOSE_DIR/config.yaml.example"
+            cp "$TMP_COMPOSE_DIR/.env.example" "$COMPOSE_DIR/.env.example"
             rm -rf "$TMP_COMPOSE_DIR"
 
             if [ ! -f "$COMPOSE_DIR/config.yaml" ]; then
-              echo "Missing $COMPOSE_DIR/config.yaml on server. Create it once before deploying."
+              echo "Missing $COMPOSE_DIR/config.yaml. Create it from config.yaml.example." >&2
+              exit 1
+            fi
+            if [ ! -f "$COMPOSE_DIR/.env" ]; then
+              echo "Missing $COMPOSE_DIR/.env. Create it from .env.example." >&2
               exit 1
             fi
 
@@ -74,14 +91,24 @@ jobs:
             elif command -v docker-compose >/dev/null 2>&1; then
               COMPOSE="docker-compose"
             else
-              echo "docker compose is not installed on server"
+              echo "docker compose is not installed on server" >&2
               exit 1
             fi
 
             cd "$COMPOSE_DIR"
+            export IMAGE_TAG
+            $COMPOSE config --quiet
             $COMPOSE pull
             $COMPOSE up -d --remove-orphans
             $COMPOSE ps
 
-            curl -fsS http://localhost:8080 >/dev/null
-            curl -fsS http://localhost:8080/api/config >/dev/null
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8080/healthz >/dev/null \
+                && curl -fsS http://127.0.0.1:8080/readyz >/dev/null; then
+                exit 0
+              fi
+              sleep 2
+            done
+
+            $COMPOSE logs --tail=100 backend frontend
+            exit 1

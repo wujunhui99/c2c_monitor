@@ -1,21 +1,25 @@
 app:
   port: 8001
+  # Required: set a random value with at least 16 characters or use C2C_APP_ADMIN_TOKEN.
+  admin_token: ""
+  allowed_origins: ["http://localhost:8080", "http://127.0.0.1:8080"]
 
 monitor:
   c2c_interval_minutes: 6
   forex_interval_hours: 1
+  forex_max_age_hours: 6
   alert_threshold_percent: 0.1
   target_amounts: [0, 30, 50, 200, 500, 1000]
   exchanges: ["Binance", "Gate", "OKX"]
 
 database:
-  dsn: "your_user:your_password@tcp(127.0.0.1:3306)/c2c_monitor?charset=utf8mb4&parseTime=True&loc=Local"
+  dsn: ""
 
 notification:
   email:
     smtp_host: "smtp.qq.com"
     smtp_port: 587
-    username: "your_email@example.com"
-    password: "your_smtp_password"
-    from: "your_email@example.com"
-    to: ["recipient@example.com"]
+    username: ""
+    password: ""
+    from: ""
+    to: []

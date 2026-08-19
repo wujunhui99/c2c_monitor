@@ -3,37 +3,65 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: c2c_monitor
-      MYSQL_USER: user
-      MYSQL_PASSWORD: password
+      MYSQL_USER: ${MYSQL_USER:-c2c_monitor}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
 
   backend:
-    image: ghcr.io/wujunhui99/c2c-monitor-backend:latest
+    image: ghcr.io/wujunhui99/c2c-monitor-backend:${IMAGE_TAG:?set IMAGE_TAG to a published commit SHA}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       mysql:
         condition: service_healthy
+    environment:
+      C2C_APP_ADMIN_TOKEN: ${C2C_APP_ADMIN_TOKEN:?set C2C_APP_ADMIN_TOKEN in .env}
+      C2C_DATABASE_DSN: "${MYSQL_USER:-c2c_monitor}:${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}@tcp(mysql:3306)/c2c_monitor?charset=utf8mb4&parseTime=True&loc=UTC"
+      C2C_NOTIFICATION_EMAIL_SMTP_HOST: ${SMTP_HOST:-smtp.qq.com}
+      C2C_NOTIFICATION_EMAIL_SMTP_PORT: ${SMTP_PORT:-587}
+      C2C_NOTIFICATION_EMAIL_USERNAME: ${SMTP_USERNAME:?set SMTP_USERNAME in .env}
+      C2C_NOTIFICATION_EMAIL_PASSWORD: ${SMTP_PASSWORD:?set SMTP_PASSWORD in .env}
+      C2C_NOTIFICATION_EMAIL_FROM: ${SMTP_FROM:?set SMTP_FROM in .env}
     volumes:
       - ./config.yaml:/app/config/config.yaml:ro
+      - backend-logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8001/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend:
-    image: ghcr.io/wujunhui99/c2c-monitor-frontend:latest
+    image: ghcr.io/wujunhui99/c2c-monitor-frontend:${IMAGE_TAG:?set IMAGE_TAG to a published commit SHA}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - "8080:80"
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:8080:80"
     volumes:
       - ./frontend-config.js:/usr/share/nginx/html/js/config.js:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   mysql-data:
+  backend-logs:

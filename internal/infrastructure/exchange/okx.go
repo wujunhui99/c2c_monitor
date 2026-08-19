@@ -2,23 +2,26 @@ package exchange
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
-	"strconv"
 	"time"
 
 	"c2c_monitor/internal/domain"
 )
 
 type OKXAdapter struct {
-	client *http.Client
+	client   *http.Client
+	endpoint string
 }
+
+const okxC2CEndpoint = "https://www.okx.com/v3/c2c/tradingOrders/books"
 
 func NewOKXAdapter() *OKXAdapter {
 	return &OKXAdapter{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client:   &http.Client{Timeout: 10 * time.Second},
+		endpoint: okxC2CEndpoint,
 	}
 }
 
@@ -55,10 +58,24 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 		return nil, fmt.Errorf("invalid side: %s", side)
 	}
 
-	url := fmt.Sprintf("https://www.okx.com/v3/c2c/tradingOrders/books?quoteCurrency=%s&baseCurrency=%s&side=%s&paymentMethod=all&userType=all&showTrade=false&showFollow=false&showAlreadyTraded=false&isHideHk=false&limit=1",
-		fiat, symbol, okxSide)
+	requestURL, err := url.Parse(a.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("parse OKX endpoint: %w", err)
+	}
+	query := requestURL.Query()
+	query.Set("quoteCurrency", fiat)
+	query.Set("baseCurrency", symbol)
+	query.Set("side", okxSide)
+	query.Set("paymentMethod", "all")
+	query.Set("userType", "all")
+	query.Set("showTrade", "false")
+	query.Set("showFollow", "false")
+	query.Set("showAlreadyTraded", "false")
+	query.Set("isHideHk", "false")
+	query.Set("limit", "20")
+	requestURL.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +94,7 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 	}
 
 	var data OKXResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := decodeExchangeResponse(resp.Body, &data); err != nil {
 		return nil, err
 	}
 
@@ -95,39 +112,49 @@ func (a *OKXAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side string
 	var points []domain.PricePoint
 
 	for _, ad := range ads {
-		price, _ := strconv.ParseFloat(ad.Price, 64)
-		minAmount, _ := strconv.ParseFloat(ad.QuoteMinAmountPerOrder, 64)
-		maxAmount, _ := strconv.ParseFloat(ad.QuoteMaxAmountPerOrder, 64)
-		availableAmount, _ := strconv.ParseFloat(ad.AvailableAmount, 64)
+		price, err := parseFiniteFloat(ad.Price)
+		if err != nil || price <= 0 {
+			continue
+		}
+		minAmount, err := parseFiniteFloat(ad.QuoteMinAmountPerOrder)
+		if err != nil || minAmount < 0 {
+			continue
+		}
+		maxAmount, err := parseFiniteFloat(ad.QuoteMaxAmountPerOrder)
+		if err != nil || maxAmount < minAmount {
+			continue
+		}
+		availableAmount, err := parseFiniteFloat(ad.AvailableAmount)
+		if err != nil || availableAmount < 0 {
+			continue
+		}
 
 		payMethodsStr := domain.JoinNormalizedPayMethods(ad.PaymentMethods)
 
-		if price > 0 {
-			point := domain.PricePoint{
-				Exchange:        "OKX",
-				Symbol:          symbol,
-				Fiat:            fiat,
-				Side:            side,
-				TargetAmount:    amount,
-				Rank:            0, // Will be assigned later
-				Price:           price,
-				Merchant:        ad.NickName,
-				MerchantID:      ad.MerchantId,
-				CreatedAt:       time.Now(),
-				MinAmount:       minAmount,
-				MaxAmount:       maxAmount,
-				AvailableAmount: availableAmount,
-				PayMethods:      payMethodsStr,
-			}
-
-			// Filter by amount (CNY)
-			if amount > 0 {
-				if amount < minAmount || amount > maxAmount {
-					continue
-				}
-			}
-			points = append(points, point)
+		point := domain.PricePoint{
+			Exchange:        domain.ExchangeOKX,
+			Symbol:          symbol,
+			Fiat:            fiat,
+			Side:            side,
+			TargetAmount:    amount,
+			Rank:            0, // Will be assigned later
+			Price:           price,
+			Merchant:        ad.NickName,
+			MerchantID:      ad.MerchantId,
+			CreatedAt:       time.Now(),
+			MinAmount:       minAmount,
+			MaxAmount:       maxAmount,
+			AvailableAmount: availableAmount,
+			PayMethods:      payMethodsStr,
 		}
+
+		// Filter by amount (CNY)
+		if amount > 0 {
+			if amount < minAmount || amount > maxAmount {
+				continue
+			}
+		}
+		points = append(points, point)
 	}
 
 	// Sort
