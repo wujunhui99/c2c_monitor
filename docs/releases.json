@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "v1.4.0",
+      "released_at": "2026-08-13",
+      "summary": "Hardened administrative access, scheduling, alert delivery, upstream handling, deployment, and frontend rendering.",
+      "changes": [
+        "Protected runtime configuration and alert reset writes with Bearer authentication and restricted CORS to configured origins.",
+        "Added liveness and Forex-aware readiness endpoints, stale-rate protection, runtime schedule updates, bounded retries, and per-exchange degraded states.",
+        "Changed alert state progression so failed SMTP delivery cannot suppress a later notification, and added cancellable TLS SMTP delivery.",
+        "Improved Binance and OKX candidate handling, response validation, database indexes, and failure-path test coverage.",
+        "Removed unsafe dynamic frontend rendering, kept admin tokens in session storage, and improved degraded and mobile layouts.",
+        "Added pull-request verification, CodeQL, Dependabot, pinned actions, race and vet checks, SBOM/provenance, and immutable-SHA deployment."
+      ]
+    },
+    {
       "version": "v1.3.0",
       "released_at": "2026-04-04",
       "summary": "Moved release notes into docs/releases.json, removed history-contract hardcoding, added structured logs, and introduced explicit schema migrations.",

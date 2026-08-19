@@ -3,6 +3,7 @@ const state = {
     config: {
         c2c_interval_minutes: 3,
         forex_interval_hours: 1,
+        forex_max_age_hours: 6,
         target_amounts: []
     },
     version: 'unknown',
@@ -15,30 +16,8 @@ const state = {
 
 const FOREX_SERIES_NAME = 'USD/CNY 汇率';
 
-// DOM Elements
-const elements = {
-    tabs: document.querySelectorAll('.tab-btn'),
-    tabContents: document.querySelectorAll('.tab-content'),
-    amountSelect: document.getElementById('amount-select'),
-    rangeBtns: document.querySelectorAll('.range-btn'),
-    refreshBtn: document.getElementById('refresh-btn'),
-    c2cIntervalInput: document.getElementById('c2c-interval'),
-    forexIntervalInput: document.getElementById('forex-interval'),
-    amountTagsContainer: document.getElementById('amount-tags'),
-    newAmountInput: document.getElementById('new-amount'),
-    addAmountBtn: document.getElementById('add-amount-btn'),
-    saveConfigBtn: document.getElementById('save-config-btn'),
-    saveStatus: document.getElementById('save-status'),
-    mainChart: document.getElementById('main-chart')
-};
-
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
-    // Re-select elements on load in case of dynamic issues, though usually const elements defined above is fine if script runs after DOM
-    // But since we use 'defer' or put script at bottom, it's fine.
-    // Actually, to be safe against script placement, we should re-query inside DOMContentLoaded or move `elements` definition inside.
-    // Let's move them inside to be safe.
-    
     bindEvents();
     initTabs();
     initChart();
@@ -63,6 +42,8 @@ function getElements() {
         refreshBtn: document.getElementById('refresh-btn'),
         c2cIntervalInput: document.getElementById('c2c-interval'),
         forexIntervalInput: document.getElementById('forex-interval'),
+        forexMaxAgeInput: document.getElementById('forex-max-age'),
+        adminTokenInput: document.getElementById('admin-token'),
         amountTagsContainer: document.getElementById('amount-tags'),
         newAmountInput: document.getElementById('new-amount'),
         addAmountBtn: document.getElementById('add-amount-btn'),
@@ -115,7 +96,9 @@ function initChart() {
         tooltip: {
             trigger: 'axis',
             formatter: function (params) {
-                let result = params[0].axisValueLabel + '<br/>';
+                if (!params || params.length === 0) return '';
+
+                let result = `${escapeHTML(params[0].axisValueLabel)}<br/>`;
                 let forexVal = null;
                 
                 // Find Forex Value first
@@ -131,17 +114,17 @@ function initChart() {
                     
                     // Forex just shows value
                     if (item.seriesName === FOREX_SERIES_NAME) {
-                        result += `${item.marker} ${item.seriesName}: ${val}<br/>`;
+                        result += `${item.marker} ${escapeHTML(item.seriesName)}: ${formatNumber(val)}<br/>`;
                         return;
                     }
 
                     // C2C Series
                     if (val) {
                          // value array: [date, price, merchant, min, max, pay, available]
-                        const merchant = item.value[2] || 'Unknown';
+                        const merchant = escapeHTML(item.value[2] || 'Unknown');
                         const min = item.value[3] || 0;
                         const max = item.value[4] || 0;
-                        const pay = item.value[5] || '-';
+                        const pay = escapeHTML(item.value[5] || '-');
                         const avail = item.value[6] || 0;
 
                         if (forexVal) {
@@ -150,25 +133,50 @@ function initChart() {
                         }
                         
                         extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">商家: ${merchant}</span>`;
-                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">限额: ${min} - ${max} CNY</span>`;
-                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">可用: ${avail} CNY</span>`;
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">限额: ${formatNumber(min)} - ${formatNumber(max)} CNY</span>`;
+                        extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">可用: ${formatNumber(avail)} CNY</span>`;
                         extra += `<br/><span style="font-size:12px;color:#666;margin-left:14px">支付: ${pay}</span>`;
                     }
-                    result += `${item.marker} ${item.seriesName}: ${val}${extra}<br/><br/>`;
+                    result += `${item.marker} ${escapeHTML(item.seriesName)}: ${formatNumber(val)}${extra}<br/><br/>`;
                 });
                 return result;
             }
         },
         legend: { data: [] },
-        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+        grid: { left: '3%', right: '4%', top: 72, bottom: '3%', containLabel: true },
         xAxis: { type: 'time', boundaryGap: false },
         yAxis: { type: 'value', scale: true }, 
-        series: []
+        series: [],
+        media: [
+            {
+                query: { maxWidth: 480 },
+                option: {
+                    title: {
+                        top: 8,
+                        left: 8,
+                        textStyle: { fontSize: 16 }
+                    },
+                    legend: {
+                        top: 38,
+                        left: 8,
+                        right: 8,
+                        type: 'scroll'
+                    },
+                    grid: {
+                        left: 8,
+                        right: 12,
+                        top: 92,
+                        bottom: 16,
+                        containLabel: true
+                    }
+                }
+            }
+        ]
     };
     state.chartInstance.setOption(option);
     
     // Click Event
-    state.chartInstance.on('click', function(params) {
+        state.chartInstance.on('click', function(params) {
         if (params.componentType === 'series' && params.seriesName !== FOREX_SERIES_NAME) {
              const val = params.value;
              // val: [date, price, merchant, min, max, pay, available]
@@ -197,7 +205,7 @@ function bindEvents() {
     // Dashboard Controls
     if (el.amountSelect) {
         el.amountSelect.addEventListener('change', (e) => {
-            state.currentAmount = parseInt(e.target.value);
+            state.currentAmount = Number(e.target.value);
             loadChartData();
         });
     }
@@ -228,6 +236,17 @@ function bindEvents() {
     if (el.saveConfigBtn) {
         el.saveConfigBtn.addEventListener('click', saveConfig);
     }
+    if (el.adminTokenInput) {
+        el.adminTokenInput.value = sessionStorage.getItem('c2cAdminToken') || '';
+        el.adminTokenInput.addEventListener('input', () => {
+            const token = el.adminTokenInput.value.trim();
+            if (token) {
+                sessionStorage.setItem('c2cAdminToken', token);
+            } else {
+                sessionStorage.removeItem('c2cAdminToken');
+            }
+        });
+    }
 }
 
 // API Calls
@@ -243,6 +262,7 @@ async function loadConfig() {
         state.config = {
             c2c_interval_minutes: config.C2CIntervalMinutes || config.c2c_interval_minutes || 3,
             forex_interval_hours: config.ForexIntervalHours || config.forex_interval_hours || 1,
+            forex_max_age_hours: config.ForexMaxAgeHours || config.forex_max_age_hours || 6,
             target_amounts: config.TargetAmounts || config.target_amounts || []
         };
 
@@ -290,28 +310,36 @@ async function loadActiveAlerts() {
 
 async function resetAlert(key) {
     if (!confirm('Are you sure you want to reset this dynamic threshold?')) return;
-    
-    // Key format: Exchange-Side-Amount (e.g., Binance-BUY-1000)
-    const parts = key.split('-');
-    if (parts.length !== 3) return;
+
+    const parts = parseAlertKey(key);
+    if (!parts) {
+        alert('Invalid alert key');
+        return;
+    }
+    const token = getAdminToken();
+    if (!token) return;
 
     const payload = {
-        exchange: parts[0],
-        side: parts[1],
-        amount: parseFloat(parts[2])
+        exchange: parts.exchange,
+        side: parts.side,
+        amount: parts.amount
     };
 
     try {
         const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/reset`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: adminHeaders(token),
             body: JSON.stringify(payload)
         });
         
         if (response.ok) {
             loadActiveAlerts();
+        } else if (response.status === 401) {
+            clearAdminToken();
+            alert('Admin token rejected');
         } else {
-            alert('Failed to reset alert');
+            const error = await readErrorResponse(response);
+            alert(error || 'Failed to reset alert');
         }
     } catch (error) {
         console.error('Error resetting alert:', error);
@@ -322,22 +350,35 @@ function renderActiveAlerts(states) {
     const el = getElements();
     if (!el.alertStatusTableBody) return;
     
-    el.alertStatusTableBody.innerHTML = '';
+    el.alertStatusTableBody.replaceChildren();
     
     if (!states || Object.keys(states).length === 0) {
-        el.alertStatusTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 15px; color: #888;">No active dynamic thresholds. (Using default percentage alerts)</td></tr>';
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.className = 'empty-table-state';
+        td.textContent = 'No active dynamic thresholds. (Using default percentage alerts)';
+        tr.appendChild(td);
+        el.alertStatusTableBody.appendChild(tr);
         return;
     }
 
     for (const [key, price] of Object.entries(states)) {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td style="padding: 10px; border-bottom: 1px solid #eee;">${key}</td>
-            <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>${price.toFixed(4)}</strong></td>
-            <td style="padding: 10px; border-bottom: 1px solid #eee;">
-                <button class="primary-btn" style="padding: 5px 10px; font-size: 12px; background: #dc3545;" onclick="resetAlert('${key}')">Reset</button>
-            </td>
-        `;
+        const keyCell = document.createElement('td');
+        keyCell.textContent = key;
+        const priceCell = document.createElement('td');
+        const priceValue = document.createElement('strong');
+        priceValue.textContent = Number(price).toFixed(4);
+        priceCell.appendChild(priceValue);
+        const actionCell = document.createElement('td');
+        const resetButton = document.createElement('button');
+        resetButton.type = 'button';
+        resetButton.className = 'danger-btn compact-btn';
+        resetButton.textContent = 'Reset';
+        resetButton.addEventListener('click', () => resetAlert(key));
+        actionCell.appendChild(resetButton);
+        tr.append(keyCell, priceCell, actionCell);
         el.alertStatusTableBody.appendChild(tr);
     }
 }
@@ -382,71 +423,102 @@ function updateSystemStatusUI(statusMap) {
     const el = getElements();
     if (!el.systemStatusIndicator || !el.statusDetailsTooltip) return;
 
-    // Check if any error exists
-    let allOk = true;
-    let detailsHtml = '<h4>Service Health</h4>';
+    let hasError = false;
+    let hasDegraded = false;
 
-    // If map is empty, it means no data yet
     if (!statusMap || Object.keys(statusMap).length === 0) {
         el.systemStatusIndicator.className = 'status-indicator loading';
         el.systemStatusIndicator.querySelector('.status-text').textContent = 'Waiting for data...';
-        el.statusDetailsTooltip.innerHTML = '<p style="font-size:12px; color:#666;">No status data available yet.</p>';
+        el.statusDetailsTooltip.replaceChildren(createTextElement('p', 'No status data available yet.', 'status-empty'));
         return;
     }
 
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(createTextElement('h4', 'Service Health'));
+
     for (const [key, val] of Object.entries(statusMap)) {
-        if (val.status !== 'OK') allOk = false;
-        
+        if (val.status === 'Degraded') {
+            hasDegraded = true;
+        } else if (val.status !== 'OK') {
+            hasError = true;
+        }
+
         const lastCheck = new Date(val.last_check).toLocaleTimeString();
-        const statusClass = val.status === 'OK' ? 'ok' : 'error';
-        const statusText = val.status === 'OK' ? 'Operational' : 'Failed';
-        
-        detailsHtml += `
-            <div class="status-item">
-                <div>
-                    <div class="status-item-name">${key}</div>
-                    <div style="font-size:10px; color:#999;">Last check: ${lastCheck}</div>
-                    ${val.message ? `<div style="font-size:10px; color:#dc3545; margin-top:2px;">${val.message}</div>` : ''}
-                </div>
-                <div class="status-item-val ${statusClass}">${statusText}</div>
-            </div>
-        `;
+        const normalizedStatus = val.status === 'OK' ? 'ok' : (val.status === 'Degraded' ? 'degraded' : 'error');
+        const statusText = val.status === 'OK' ? 'Operational' : val.status;
+
+        const item = document.createElement('div');
+        item.className = 'status-item';
+        const details = document.createElement('div');
+        details.appendChild(createTextElement('div', key, 'status-item-name'));
+        details.appendChild(createTextElement('div', `Last check: ${lastCheck}`, 'status-item-time'));
+        if (val.message) {
+            details.appendChild(createTextElement('div', val.message, `status-item-message ${normalizedStatus}`));
+        }
+        const value = createTextElement('div', statusText, `status-item-val ${normalizedStatus}`);
+        item.append(details, value);
+        fragment.appendChild(item);
     }
 
-    if (allOk) {
-        el.systemStatusIndicator.className = 'status-indicator ok';
-        el.systemStatusIndicator.querySelector('.status-text').textContent = 'All Systems Operational';
-    } else {
+    if (hasError) {
         el.systemStatusIndicator.className = 'status-indicator error';
         el.systemStatusIndicator.querySelector('.status-text').textContent = 'System Issues Detected';
+    } else if (hasDegraded) {
+        el.systemStatusIndicator.className = 'status-indicator degraded';
+        el.systemStatusIndicator.querySelector('.status-text').textContent = 'Partial Data Degradation';
+    } else {
+        el.systemStatusIndicator.className = 'status-indicator ok';
+        el.systemStatusIndicator.querySelector('.status-text').textContent = 'All Systems Operational';
     }
 
-    el.statusDetailsTooltip.innerHTML = detailsHtml;
+    el.statusDetailsTooltip.replaceChildren(fragment);
 }
 
 async function saveConfig() {
     const el = getElements();
+    const c2cInterval = readPositiveInteger(el.c2cIntervalInput.value);
+    const forexInterval = readPositiveInteger(el.forexIntervalInput.value);
+    const forexMaxAge = readPositiveInteger(el.forexMaxAgeInput.value);
+    if (c2cInterval === null || forexInterval === null || forexMaxAge === null) {
+        el.saveStatus.textContent = 'Intervals and Forex maximum age must be positive integers';
+        el.saveStatus.style.color = 'red';
+        return;
+    }
+    if (state.config.target_amounts.length === 0) {
+        el.saveStatus.textContent = 'Add at least one target amount';
+        el.saveStatus.style.color = 'red';
+        return;
+    }
+
     const newConfig = {
         ...state.config,
-        c2c_interval_minutes: parseInt(el.c2cIntervalInput.value),
-        forex_interval_hours: parseInt(el.forexIntervalInput.value),
+        c2c_interval_minutes: c2cInterval,
+        forex_interval_hours: forexInterval,
+        forex_max_age_hours: forexMaxAge,
         target_amounts: state.config.target_amounts
     };
+    const token = getAdminToken();
+    if (!token) return;
 
     try {
         const response = await fetch(`${AppConfig.apiBaseUrl}/api/config`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: adminHeaders(token),
             body: JSON.stringify(newConfig)
         });
         
         if (response.ok) {
             el.saveStatus.textContent = 'Config Saved!';
+            el.saveStatus.style.color = '';
             setTimeout(() => el.saveStatus.textContent = '', 3000);
             state.config = newConfig;
-            renderConfigUI(); 
+            renderConfigUI();
+        } else if (response.status === 401) {
+            clearAdminToken();
+            el.saveStatus.textContent = 'Admin token rejected';
+            el.saveStatus.style.color = 'red';
         } else {
-            el.saveStatus.textContent = 'Save Failed';
+            el.saveStatus.textContent = await readErrorResponse(response) || 'Save Failed';
             el.saveStatus.style.color = 'red';
         }
     } catch (error) {
@@ -462,27 +534,32 @@ function renderConfigUI() {
     // Update Settings Inputs
     if (el.c2cIntervalInput) el.c2cIntervalInput.value = state.config.c2c_interval_minutes;
     if (el.forexIntervalInput) el.forexIntervalInput.value = state.config.forex_interval_hours;
+    if (el.forexMaxAgeInput) el.forexMaxAgeInput.value = state.config.forex_max_age_hours;
 
     // Render Tags in Settings
     if (el.amountTagsContainer) {
-        el.amountTagsContainer.innerHTML = '';
+        el.amountTagsContainer.replaceChildren();
         const sortedAmounts = [...state.config.target_amounts].sort((a,b) => a-b);
         
         sortedAmounts.forEach(amt => {
             const tag = document.createElement('div');
             tag.className = 'tag';
             const label = amt === 0 ? "Lowest" : `${amt} CNY`;
-            tag.innerHTML = `
-                ${label} 
-                <span class="remove-tag" onclick="removeAmountTag(${amt})">&times;</span>
-            `;
+            tag.appendChild(document.createTextNode(label));
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'remove-tag';
+            removeButton.setAttribute('aria-label', `Remove ${label}`);
+            removeButton.textContent = '\u00d7';
+            removeButton.addEventListener('click', () => removeAmountTag(amt));
+            tag.appendChild(removeButton);
             el.amountTagsContainer.appendChild(tag);
         });
     }
 
     // Update Dashboard Selector
     if (el.amountSelect) {
-        el.amountSelect.innerHTML = '';
+        el.amountSelect.replaceChildren();
         const sortedAmounts = [...state.config.target_amounts].sort((a,b) => a-b);
         
         sortedAmounts.forEach(amt => {
@@ -566,15 +643,90 @@ function getExchangeEntries(data) {
 // Logic for Settings Tags
 function addAmountTag() {
     const el = getElements();
-    const val = parseInt(el.newAmountInput.value);
-    if (!isNaN(val) && val >= 0 && !state.config.target_amounts.includes(val)) {
+    const rawValue = el.newAmountInput.value.trim();
+    if (rawValue === '') return;
+
+    const val = Number(rawValue);
+    if (Number.isFinite(val) && val >= 0 && !state.config.target_amounts.includes(val)) {
         state.config.target_amounts.push(val);
         el.newAmountInput.value = '';
         renderConfigUI();
     }
 }
 
-window.removeAmountTag = function(amt) {
+function removeAmountTag(amt) {
     state.config.target_amounts = state.config.target_amounts.filter(a => a !== amt);
     renderConfigUI();
-};
+}
+
+function getAdminToken() {
+    let token = (sessionStorage.getItem('c2cAdminToken') || '').trim();
+    if (!token) {
+        token = (window.prompt('Admin token') || '').trim();
+        if (token) {
+            sessionStorage.setItem('c2cAdminToken', token);
+            const el = getElements();
+            if (el.adminTokenInput) el.adminTokenInput.value = token;
+        }
+    }
+    return token;
+}
+
+function clearAdminToken() {
+    sessionStorage.removeItem('c2cAdminToken');
+    const el = getElements();
+    if (el.adminTokenInput) el.adminTokenInput.value = '';
+}
+
+function adminHeaders(token) {
+    return {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+    };
+}
+
+async function readErrorResponse(response) {
+    try {
+        const payload = await response.json();
+        return payload.error || '';
+    } catch {
+        return '';
+    }
+}
+
+function parseAlertKey(key) {
+    const match = /^(.+)-(BUY|SELL)-(.+)$/.exec(key);
+    if (!match) return null;
+    const amount = Number(match[3]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    return { exchange: match[1], side: match[2], amount };
+}
+
+function createTextElement(tagName, text, className = '') {
+    const element = document.createElement(tagName);
+    if (className) element.className = className;
+    element.textContent = text;
+    return element;
+}
+
+function formatNumber(value) {
+    if (value === null || value === undefined || value === '') return '-';
+    const number = Number(value);
+    return Number.isFinite(number) ? String(number) : '-';
+}
+
+function readPositiveInteger(value) {
+    const rawValue = String(value).trim();
+    if (rawValue === '') return null;
+    const number = Number(rawValue);
+    return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function escapeHTML(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}

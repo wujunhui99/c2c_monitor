@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -89,7 +88,7 @@ func (a *GateAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side strin
 	}
 	defer resp.Body.Close()
 
-	payload, err := io.ReadAll(resp.Body)
+	payload, err := readExchangeResponse(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +192,10 @@ func gateAdToPoint(ad GateAd, symbol, fiat, side string, targetAmount float64, n
 		return domain.PricePoint{}, false
 	}
 
-	availableAmount, _ := parseGateFloat(ad.Amount)
+	availableAmount, err := parseGateFloat(ad.Amount)
+	if err != nil || availableAmount < 0 {
+		return domain.PricePoint{}, false
+	}
 
 	merchant := strings.TrimSpace(ad.Nick)
 	if merchant == "" {
@@ -239,8 +241,19 @@ func gateFiatRange(ad GateAd, price float64) (float64, float64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	if minCrypto < 0 || maxCrypto < minCrypto {
+		return 0, 0, fmt.Errorf("invalid crypto amount range")
+	}
 
-	return minCrypto * price, maxCrypto * price, nil
+	minFiat := minCrypto * price
+	maxFiat := maxCrypto * price
+	if _, err := parseFiniteFloat(strconv.FormatFloat(minFiat, 'g', -1, 64)); err != nil {
+		return 0, 0, err
+	}
+	if _, err := parseFiniteFloat(strconv.FormatFloat(maxFiat, 'g', -1, 64)); err != nil {
+		return 0, 0, err
+	}
+	return minFiat, maxFiat, nil
 }
 
 func parseGateLimitFiat(raw string) (float64, float64, error) {
@@ -258,6 +271,9 @@ func parseGateLimitFiat(raw string) (float64, float64, error) {
 	if err != nil {
 		return 0, 0, err
 	}
+	if minAmount < 0 || maxAmount < minAmount {
+		return 0, 0, fmt.Errorf("invalid limit_fiat range")
+	}
 
 	return minAmount, maxAmount, nil
 }
@@ -267,7 +283,7 @@ func parseGateFloat(raw string) (float64, error) {
 	if cleaned == "" {
 		return 0, fmt.Errorf("empty numeric value")
 	}
-	return strconv.ParseFloat(cleaned, 64)
+	return parseFiniteFloat(cleaned)
 }
 
 func normalizeGatePayMethods(payTypeNum string) string {

@@ -9,7 +9,7 @@
 - 外部依赖策略与测试要求：`docs/architecture/external-dependencies.md`
 - 运行、调试、排障：`docs/operations/runbook.md`
 - 版本变更记录：`docs/releases.json`
-- 当前活跃计划：`docs/exec-plans/active/2026-04-harness-foundation.md`
+- 待发布计划：`docs/exec-plans/active/2026-08-reliability-security.md`
 - 已知技术债务：`docs/tech-debt-tracker.md`
 
 ## Repo Map
@@ -38,6 +38,8 @@
 - 如果改动了 `Dockerfile`、包结构或构建脚本，提交前还必须额外运行一次 `docker build -f Dockerfile .`。
 - 涉及镜像发布的 CI 必须保留前置验证，不能直接进入镜像构建或推送步骤。
 - 新增或修改外部依赖时，测试不能只覆盖 happy path；必须至少覆盖一个 failure path。
+- 不要把真实管理员 token、数据库凭据、SMTP 凭据或 `deploy/compose/config.yaml` 提交到仓库。
+- 前端渲染 API 文本时优先使用 `textContent` / DOM API；确实需要 HTML 字符串时必须逐项转义动态值。
 - `docs/tech-debt-tracker.md` 只保留尚未完成的技术债；某项已经修复后，要在同一批变更里把它从文档删除。
 - 不要重新引入新的顶层 `PRD.md`；让 `docs/` 保持单一事实来源。
 
@@ -45,11 +47,19 @@
 
 - 支持的交易所只有：`Binance`、`Gate`、`OKX`
 - 配置加载阶段会把交易所名称规范化为上面的标准写法，并拒绝不支持的值
+- `POST /api/config` 和 `POST /api/alerts/reset` 必须经过 Bearer token 鉴权
+- `/healthz` 只表示进程存活；`/readyz` 必须拒绝缺失或过期的 Forex 参考价
+- 交易所状态必须保留 `OK`、`Degraded`、`Error` 三态，不能用部分成功掩盖失败金额档位
+- SMTP 发送失败时不能推进动态告警状态
+- 运行时 C2C / Forex 周期更新必须唤醒调度器，且同类采集轮次不能重叠
 - `make doctor` 必须通过，至少覆盖：
   - 核心 docs 骨架存在
   - `AGENTS.md` 保持短小
+  - Go 文件已格式化
   - `go test ./...`
+  - `go vet ./...`
   - `go build ./cmd/monitor`
+  - 前端 JavaScript 语法检查
 
 ## Common Commands
 

@@ -35,6 +35,14 @@ header {
     align-items: center;
 }
 
+.header-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+}
+
 h1 {
     margin: 0;
     font-size: 24px;
@@ -128,6 +136,7 @@ h1 {
 .tabs {
     display: flex;
     gap: 10px;
+    flex-shrink: 0;
 }
 
 .tab-btn {
@@ -224,6 +233,39 @@ select {
     border-radius: 4px;
 }
 
+.alert-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+#alert-status-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+#alert-status-table thead {
+    background: #f8f9fa;
+    text-align: left;
+}
+
+#alert-status-table th {
+    padding: 10px;
+    border-bottom: 2px solid #eee;
+}
+
+#alert-status-table .market-column {
+    width: 54%;
+}
+
+#alert-status-table .price-column {
+    width: 28%;
+}
+
+#alert-status-table .action-column {
+    width: 18%;
+}
+
 /* Settings */
 .settings-panel {
     max-width: 600px;
@@ -271,6 +313,11 @@ select {
     cursor: pointer;
     color: #dc3545;
     font-weight: bold;
+    border: none;
+    background: transparent;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
 }
 
 .add-amount-group {
@@ -290,6 +337,31 @@ select {
 
 .primary-btn:hover {
     background-color: #0056b3;
+}
+
+.danger-btn {
+    background-color: #c82333;
+    color: var(--white);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.compact-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.empty-table-state {
+    text-align: center;
+    padding: 15px;
+    color: #888;
+}
+
+#alert-status-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    overflow-wrap: anywhere;
 }
 
 .status-msg {
@@ -322,6 +394,7 @@ select {
 }
 
 .status-indicator.ok .status-dot { background-color: #28a745; }
+.status-indicator.degraded .status-dot { background-color: #d39e00; }
 .status-indicator.error .status-dot { background-color: #dc3545; }
 .status-indicator.loading .status-dot { background-color: #ffc107; }
 
@@ -338,6 +411,7 @@ select {
     padding: 15px;
     z-index: 1000;
     margin-top: 5px;
+    max-width: calc(100vw - 40px);
 }
 
 .status-indicator:hover .status-details-tooltip {
@@ -371,4 +445,141 @@ select {
 }
 
 .status-item-val.ok { color: #155724; background-color: #d4edda; }
+.status-item-val.degraded { color: #6b5300; background-color: #fff3cd; }
 .status-item-val.error { color: #721c24; background-color: #f8d7da; }
+
+.status-item-time {
+    font-size: 10px;
+    color: #777;
+}
+
+.status-item-message {
+    font-size: 10px;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+}
+
+.status-item-message.degraded {
+    color: #856404;
+}
+
+.status-item-message.error {
+    color: #b21f2d;
+}
+
+.status-empty {
+    font-size: 12px;
+    color: #666;
+}
+
+@media (max-width: 640px) {
+    body {
+        padding: 12px;
+    }
+
+    .container {
+        padding: 16px;
+    }
+
+    header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .header-main {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .header-title-group {
+        width: 100%;
+    }
+
+    h1 {
+        font-size: 22px;
+    }
+
+    .status-indicator {
+        margin-right: 0;
+        max-width: 100%;
+    }
+
+    .status-details-tooltip {
+        left: 0;
+        right: auto;
+        width: min(300px, calc(100vw - 56px));
+    }
+
+    .tabs {
+        width: 100%;
+        gap: 0;
+    }
+
+    .tab-btn {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 10px 8px;
+    }
+
+    .control-bar {
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .control-group {
+        align-items: flex-start;
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .control-group select,
+    .btn-group {
+        width: 100%;
+    }
+
+    .range-btn {
+        flex: 1 1 0;
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+
+    .chart-container {
+        height: 480px;
+    }
+
+    .alert-status-section {
+        padding: 16px !important;
+    }
+
+    #alert-status-table {
+        font-size: 13px;
+    }
+
+    #alert-status-table th,
+    #alert-status-table td {
+        padding: 8px 6px;
+    }
+
+    #alert-status-table .market-column {
+        width: 48%;
+    }
+
+    #alert-status-table .price-column {
+        width: 30%;
+    }
+
+    #alert-status-table .action-column {
+        width: 22%;
+    }
+
+    .add-amount-group {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .add-amount-group .primary-btn {
+        align-self: flex-start;
+    }
+}

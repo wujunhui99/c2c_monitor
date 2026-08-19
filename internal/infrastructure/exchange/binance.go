@@ -13,12 +13,16 @@ import (
 )
 
 type BinanceAdapter struct {
-	client *http.Client
+	client   *http.Client
+	endpoint string
 }
+
+const binanceC2CEndpoint = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
 
 func NewBinanceAdapter() *BinanceAdapter {
 	return &BinanceAdapter{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client:   &http.Client{Timeout: 10 * time.Second},
+		endpoint: binanceC2CEndpoint,
 	}
 }
 
@@ -64,8 +68,6 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 	// In Binance P2P Web API:
 	// If I click "Buy", the payload sends "tradeType": "BUY".
 
-	url := "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
-
 	payload := BinanceRequest{
 		Asset:       symbol,
 		Fiat:        fiat,
@@ -73,7 +75,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		TransAmount: amount,
 		Order:       "",
 		Page:        1,
-		Rows:        1, // Fetch top 1 ad (lowest price)
+		Rows:        10,
 		PayTypes:    []string{},
 	}
 
@@ -82,7 +84,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.endpoint, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +105,7 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 	}
 
 	var data BinanceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := decodeExchangeResponse(resp.Body, &data); err != nil {
 		return nil, err
 	}
 
@@ -114,13 +116,25 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 	var points []domain.PricePoint
 
 	for i, item := range data.Data {
-		var price float64
-		fmt.Sscanf(item.Adv.Price, "%f", &price)
-
-		var minAmount, maxAmount, availableAmount float64
-		fmt.Sscanf(item.Adv.MinSingleTransAmount, "%f", &minAmount)
-		fmt.Sscanf(item.Adv.MaxSingleTransAmount, "%f", &maxAmount)
-		fmt.Sscanf(item.Adv.SurplusAmount, "%f", &availableAmount)
+		price, err := parseFiniteFloat(item.Adv.Price)
+		if err != nil || price <= 0 {
+			continue
+		}
+		minAmount, err := parseFiniteFloat(item.Adv.MinSingleTransAmount)
+		if err != nil || minAmount < 0 {
+			continue
+		}
+		maxAmount, err := parseFiniteFloat(item.Adv.MaxSingleTransAmount)
+		if err != nil || maxAmount < minAmount {
+			continue
+		}
+		availableAmount, err := parseFiniteFloat(item.Adv.SurplusAmount)
+		if err != nil || availableAmount < 0 {
+			continue
+		}
+		if amount > 0 && (amount < minAmount || amount > maxAmount) {
+			continue
+		}
 
 		var payMethods []string
 		for _, method := range item.Adv.TradeMethods {
@@ -128,24 +142,22 @@ func (a *BinanceAdapter) GetTopPrices(ctx context.Context, symbol, fiat, side st
 		}
 		payMethodsStr := domain.JoinNormalizedPayMethods(payMethods)
 
-		if price > 0 {
-			points = append(points, domain.PricePoint{
-				Exchange:        "Binance",
-				Symbol:          symbol,
-				Fiat:            fiat,
-				Side:            side,
-				TargetAmount:    amount,
-				Rank:            i + 1,
-				Price:           price,
-				Merchant:        item.Advertiser.NickName,
-				MerchantID:      item.Advertiser.UserNo,
-				CreatedAt:       time.Now(),
-				MinAmount:       minAmount,
-				MaxAmount:       maxAmount,
-				AvailableAmount: availableAmount,
-				PayMethods:      payMethodsStr,
-			})
-		}
+		points = append(points, domain.PricePoint{
+			Exchange:        domain.ExchangeBinance,
+			Symbol:          symbol,
+			Fiat:            fiat,
+			Side:            side,
+			TargetAmount:    amount,
+			Rank:            i + 1,
+			Price:           price,
+			Merchant:        item.Advertiser.NickName,
+			MerchantID:      item.Advertiser.UserNo,
+			CreatedAt:       time.Now(),
+			MinAmount:       minAmount,
+			MaxAmount:       maxAmount,
+			AvailableAmount: availableAmount,
+			PayMethods:      payMethodsStr,
+		})
 	}
 
 	// Sort by price

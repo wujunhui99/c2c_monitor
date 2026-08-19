@@ -38,7 +38,7 @@ func main() {
 	} else {
 		bestTier30Price := tier30Prices[0].Price
 		fmt.Printf("Best Price (Amount=30): %.2f\n", bestTier30Price)
-		
+
 		// Verification
 		if bestLowestPrice <= bestTier30Price {
 			fmt.Printf("\n✅ Verification Passed: Lowest Price (%.2f) <= Tier 30 Price (%.2f)\n", bestLowestPrice, bestTier30Price)
@@ -47,13 +47,13 @@ func main() {
 		}
 	}
 
-    // Test 3: Amount = 5000
+	// Test 3: Amount = 5000
 	fmt.Println("\n--- Testing Binance Amount=5000 ---")
 	tier5000Prices, err := adapter.GetTopPrices(ctx, "USDT", "CNY", "BUY", 5000)
-    if err != nil {
+	if err != nil {
 		log.Fatalf("Error fetching tier 5000 prices: %v", err)
 	}
-    if len(tier5000Prices) > 0 {
-        fmt.Printf("Best Price (Amount=5000): %.2f\n", tier5000Prices[0].Price)
-    }
+	if len(tier5000Prices) > 0 {
+		fmt.Printf("Best Price (Amount=5000): %.2f\n", tier5000Prices[0].Price)
+	}
 }

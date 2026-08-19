@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"strconv"
 	"time"
 )
 
@@ -67,7 +68,7 @@ const (
 // ServiceStatus represents the health of a scraped service
 type ServiceStatus struct {
 	Name      string    `json:"name"`
-	Status    string    `json:"status"` // "OK" or "Error"
+	Status    string    `json:"status"` // "Pending", "OK", "Degraded", or "Error"
 	Message   string    `json:"message"`
 	LastCheck time.Time `json:"last_check"`
 }
@@ -82,6 +83,10 @@ type AlertState struct {
 	LastAlertAt  time.Time `json:"last_alert_at"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func AlertStateKey(exchange, side string, amount float64) string {
+	return exchange + "-" + side + "-" + strconv.FormatFloat(amount, 'f', -1, 64)
 }
 
 // Interfaces define the behavior of the system's dependencies

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -58,5 +59,21 @@ func TestOpenERAdapterRejectsMissingTargetRate(t *testing.T) {
 
 	if _, err := adapter.GetRate(context.Background(), "USD", "CNY"); err == nil {
 		t.Fatal("expected error when target rate is missing")
+	}
+}
+
+func TestOpenERAdapterRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxForexResponseBytes)+1)))
+	}))
+	defer server.Close()
+
+	adapter := &OpenERAdapter{
+		client:         &http.Client{Timeout: 2 * time.Second},
+		latestEndpoint: server.URL + "/v6/latest/%s",
+	}
+
+	if _, err := adapter.GetRate(context.Background(), "USD", "CNY"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
 	}
 }

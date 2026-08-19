@@ -15,12 +15,15 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Port int `mapstructure:"port"`
+	Port           int      `mapstructure:"port"`
+	AdminToken     string   `mapstructure:"admin_token"`
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 type MonitorConfig struct {
 	C2CIntervalMinutes    int       `mapstructure:"c2c_interval_minutes" json:"c2c_interval_minutes"`
 	ForexIntervalHours    int       `mapstructure:"forex_interval_hours" json:"forex_interval_hours"`
+	ForexMaxAgeHours      int       `mapstructure:"forex_max_age_hours" json:"forex_max_age_hours"`
 	AlertThresholdPercent float64   `mapstructure:"alert_threshold_percent" json:"alert_threshold_percent"`
 	TargetAmounts         []float64 `mapstructure:"target_amounts" json:"target_amounts"`
 	Exchanges             []string  `mapstructure:"exchanges" json:"exchanges"`
@@ -44,27 +47,44 @@ type EmailConfig struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	viper.SetConfigFile(path)
-	viper.SetConfigType("yaml")
+	v := viper.New()
+	v.SetConfigFile(path)
+	v.SetConfigType("yaml")
 
-	viper.SetDefault("app.port", 8080)
-	viper.SetDefault("monitor.c2c_interval_minutes", 3)
-	viper.SetDefault("monitor.forex_interval_hours", 1)
-	viper.SetDefault("monitor.alert_threshold_percent", 0.1)
-	viper.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
-	viper.SetDefault("monitor.exchanges", []string{"Binance", "Gate", "OKX"})
+	v.SetDefault("app.port", 8080)
+	v.SetDefault("app.admin_token", "")
+	v.SetDefault("app.allowed_origins", []string{"http://localhost:8080", "http://127.0.0.1:8080"})
+	v.SetDefault("monitor.c2c_interval_minutes", 3)
+	v.SetDefault("monitor.forex_interval_hours", 1)
+	v.SetDefault("monitor.forex_max_age_hours", 6)
+	v.SetDefault("monitor.alert_threshold_percent", 0.1)
+	v.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
+	v.SetDefault("monitor.exchanges", []string{"Binance", "Gate", "OKX"})
 
 	// Environment variable support
-	viper.SetEnvPrefix("C2C")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
+	v.SetEnvPrefix("C2C")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	for _, key := range []string{
+		"app.admin_token",
+		"database.dsn",
+		"notification.email.smtp_host",
+		"notification.email.smtp_port",
+		"notification.email.username",
+		"notification.email.password",
+		"notification.email.from",
+	} {
+		if err := v.BindEnv(key); err != nil {
+			return nil, fmt.Errorf("bind environment variable for %s: %w", key, err)
+		}
+	}
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 

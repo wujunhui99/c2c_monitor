@@ -14,7 +14,7 @@ help:
 	@echo "使用方法:"
 	@echo "  make build           - 编译后端"
 	@echo "  make test            - 运行 Go 单元测试"
-	@echo "  make doctor          - 运行仓库自检（文档结构 + 测试 + 构建）"
+	@echo "  make doctor          - 运行仓库自检（文档 + 格式 + 测试 + 静态检查 + 构建）"
 	@echo "  make start           - 启动所有服务 (后端+前端)"
 	@echo "  make stop            - 关闭所有服务"
 	@echo "  make restart         - 重启所有服务"
@@ -55,7 +55,7 @@ start-backend: build
 	@sleep 1
 	@nohup ./$(BINARY_NAME) -config $(CONFIG_PATH) > logs/backend.log 2>&1 &
 	@sleep 2
-	@if curl -fsS http://localhost:$(BACKEND_PORT)/api/config > /dev/null; then \
+	@if curl -fsS http://localhost:$(BACKEND_PORT)/healthz > /dev/null; then \
 		echo "后端启动成功 - http://localhost:$(BACKEND_PORT)"; \
 	else \
 		echo "后端启动失败，请检查日志: logs/backend.log"; \

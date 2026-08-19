@@ -9,5 +9,6 @@ RUN rm -rf /usr/share/nginx/html/*
 
 # Copy frontend static assets.
 COPY . /usr/share/nginx/html
+RUN cp /usr/share/nginx/html/js/config.js.example /usr/share/nginx/html/js/config.js
 
 EXPOSE 80

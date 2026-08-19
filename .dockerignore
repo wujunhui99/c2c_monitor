@@ -1,6 +1,9 @@
 .git
 .gitignore
 .gocache
+.env
+deploy/compose/.env
+deploy/compose/config.yaml
 
 frontend/
 

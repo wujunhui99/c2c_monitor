@@ -47,6 +47,21 @@ func ValidateCatalog() error {
 	if len(releases) == 0 {
 		return errors.New("release catalog is empty")
 	}
+
+	seen := make(map[string]struct{}, len(releases))
+	for index, release := range releases {
+		if release.Version == "" {
+			return fmt.Errorf("release catalog entry %d has an empty version", index)
+		}
+		if _, exists := seen[release.Version]; exists {
+			return fmt.Errorf("release catalog contains duplicate version %s", release.Version)
+		}
+		seen[release.Version] = struct{}{}
+	}
+
+	if _, exists := seen[Version]; !exists {
+		return fmt.Errorf("version %s is missing from release catalog", Version)
+	}
 	return nil
 }
 

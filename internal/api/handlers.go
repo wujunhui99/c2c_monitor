@@ -1,11 +1,12 @@
 package api
 
 import (
+	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	"c2c_monitor/config"
 	"c2c_monitor/internal/appmeta"
 	"c2c_monitor/internal/domain"
 	"c2c_monitor/internal/service"
@@ -14,11 +15,10 @@ import (
 
 type Handler struct {
 	svc *service.MonitorService
-	cfg *config.Config
 }
 
-func NewHandler(svc *service.MonitorService, cfg *config.Config) *Handler {
-	return &Handler{svc: svc, cfg: cfg}
+func NewHandler(svc *service.MonitorService) *Handler {
+	return &Handler{svc: svc}
 }
 
 func (h *Handler) GetHistory(c *gin.Context) {
@@ -32,7 +32,7 @@ func (h *Handler) GetHistory(c *gin.Context) {
 	}
 
 	amount, err := strconv.ParseFloat(amountStr, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount"})
 		return
 	}
@@ -157,6 +157,7 @@ func (h *Handler) GetChangelog(c *gin.Context) {
 }
 
 func (h *Handler) UpdateConfig(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 	newCfg := h.svc.GetConfig()
 	if err := c.ShouldBindJSON(&newCfg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -176,19 +177,36 @@ func (h *Handler) GetAlertStatus(c *gin.Context) {
 }
 
 type ResetAlertRequest struct {
-	Exchange string  `json:"exchange" binding:"required"`
-	Side     string  `json:"side" binding:"required"`
-	Amount   float64 `json:"amount" binding:"required"`
+	Exchange string   `json:"exchange" binding:"required"`
+	Side     string   `json:"side" binding:"required"`
+	Amount   *float64 `json:"amount" binding:"required"`
 }
 
 func (h *Handler) ResetAlert(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
 	var req ResetAlertRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.svc.ResetAlertState(c.Request.Context(), req.Exchange, req.Side, req.Amount); err != nil {
+	exchange, err := domain.NormalizeExchangeName(req.Exchange)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	if side != "BUY" && side != "SELL" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "side must be BUY or SELL"})
+		return
+	}
+	if req.Amount == nil || math.IsNaN(*req.Amount) || math.IsInf(*req.Amount, 0) || *req.Amount < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be >= 0"})
+		return
+	}
+
+	if err := h.svc.ResetAlertState(c.Request.Context(), exchange, side, *req.Amount); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset alert state"})
 		return
 	}
@@ -198,4 +216,16 @@ func (h *Handler) ResetAlert(c *gin.Context) {
 func (h *Handler) GetServiceStatus(c *gin.Context) {
 	status := h.svc.GetServiceStatuses()
 	c.JSON(http.StatusOK, gin.H{"data": status})
+}
+
+func (h *Handler) GetHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (h *Handler) GetReady(c *gin.Context) {
+	if err := h.svc.ReadinessError(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ready"})
 }
