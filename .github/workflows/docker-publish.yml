@@ -58,7 +58,7 @@ jobs:
           node --check frontend/js/release-notes.js
 
       - name: Validate workflow and config YAML
-        run: ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path) }' .github/workflows/*.yml .github/dependabot.yml config/config.yaml.example deploy/compose/config.yaml.example
+        run: ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path) }' .github/workflows/*.yml .github/dependabot.yml config/config.yaml.example deploy/compose/config.yaml.example deploy/k8s/*.yaml
 
       - name: Validate Compose files
         run: |

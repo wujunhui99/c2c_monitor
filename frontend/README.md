@@ -34,6 +34,6 @@ Open:
 
 - Copy `js/config.js.example` to the ignored `js/config.js` file when not using `make start-frontend`.
 - The default development API endpoint is `http://localhost:8001`.
-- Production Compose mounts `deploy/compose/frontend-config.js`, which uses the same-origin Nginx API proxy.
-- Saving configuration and resetting alerts require the backend administrator token.
+- Production K3s mounts `deploy/k8s/frontend-config.js`, which uses the same-origin Nginx API proxy.
+- Saving configuration, lowering the alert benchmark, and resetting market lows require the backend administrator token.
 - The token is stored only in `sessionStorage`, not local storage or source files.

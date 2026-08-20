@@ -42,6 +42,7 @@ func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
 
 	// Alert Routes
 	r.GET("/api/alerts/status", h.GetAlertStatus)
+	r.GET("/api/alerts/benchmark", h.GetAlertBenchmark)
 
 	// Service Status
 	r.GET("/api/status", h.GetServiceStatus)
@@ -53,6 +54,7 @@ func SetupRouter(svc *service.MonitorService, cfg *config.Config) *gin.Engine {
 	admin := r.Group("/api")
 	admin.Use(requireAdminToken(adminToken))
 	admin.POST("/config", h.UpdateConfig)
+	admin.POST("/alerts/benchmark", h.UpdateAlertBenchmark)
 	admin.POST("/alerts/reset", h.ResetAlert)
 
 	return r

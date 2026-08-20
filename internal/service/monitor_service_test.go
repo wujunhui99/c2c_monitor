@@ -195,6 +195,154 @@ func TestCheckAlertPersistsStateAfterNotificationSucceeds(t *testing.T) {
 	}
 }
 
+func TestAlertBenchmarkDefaultsToForexAndOnlyMovesLower(t *testing.T) {
+	repo := &stubRepository{}
+	svc := NewMonitorService(
+		testMonitorConfig(),
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		stubNotifier{},
+	)
+
+	svc.setLastForex(7.2, time.Now())
+	benchmark, forexRate, err := svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark returned error: %v", err)
+	}
+	if benchmark != 7.2 || forexRate != 7.2 {
+		t.Fatalf("expected initial benchmark and Forex rate 7.2, got benchmark=%f forex=%f", benchmark, forexRate)
+	}
+
+	svc.setLastForex(7.3, time.Now())
+	benchmark, forexRate, err = svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark after Forex increase returned error: %v", err)
+	}
+	if benchmark != 7.2 || forexRate != 7.3 {
+		t.Fatalf("expected benchmark to stay 7.2 when Forex rises to 7.3, got benchmark=%f forex=%f", benchmark, forexRate)
+	}
+
+	svc.setLastForex(7.05, time.Now())
+	benchmark, forexRate, err = svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark after Forex decrease returned error: %v", err)
+	}
+	if benchmark != 7.05 || forexRate != 7.05 {
+		t.Fatalf("expected benchmark to fall with Forex to 7.05, got benchmark=%f forex=%f", benchmark, forexRate)
+	}
+	if repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.05 {
+		t.Fatalf("expected lowered benchmark to be persisted, got %#v", repo.alertBenchmark)
+	}
+}
+
+func TestUpdateAlertBenchmarkRejectsAnyIncrease(t *testing.T) {
+	repo := &stubRepository{}
+	svc := NewMonitorService(
+		testMonitorConfig(),
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		stubNotifier{},
+	)
+	svc.setLastForex(7.2, time.Now())
+
+	if _, _, err := svc.GetAlertBenchmark(context.Background()); err != nil {
+		t.Fatalf("initialize benchmark: %v", err)
+	}
+	benchmark, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.1)
+	if err != nil {
+		t.Fatalf("expected lower benchmark to be accepted: %v", err)
+	}
+	if benchmark != 7.1 {
+		t.Fatalf("expected benchmark 7.1, got %f", benchmark)
+	}
+
+	if _, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.15); err == nil {
+		t.Fatal("expected benchmark increase to be rejected")
+	}
+	benchmark, _, err = svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("read benchmark after rejected increase: %v", err)
+	}
+	if benchmark != 7.1 {
+		t.Fatalf("expected rejected increase to leave benchmark at 7.1, got %f", benchmark)
+	}
+}
+
+func TestAlertBenchmarkRetriesPersistenceAfterFailure(t *testing.T) {
+	repo := &stubRepository{alertBenchmarkErr: errors.New("database unavailable")}
+	svc := NewMonitorService(
+		testMonitorConfig(),
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		stubNotifier{},
+	)
+	svc.setLastForex(7.2, time.Now())
+
+	benchmark, _, err := svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark returned error: %v", err)
+	}
+	if benchmark != 7.2 {
+		t.Fatalf("expected runtime benchmark 7.2 despite persistence failure, got %f", benchmark)
+	}
+	if repo.alertBenchmark != nil {
+		t.Fatalf("did not expect failed persistence to store a benchmark")
+	}
+
+	repo.alertBenchmarkErr = nil
+	benchmark, _, err = svc.GetAlertBenchmark(context.Background())
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark retry returned error: %v", err)
+	}
+	if benchmark != 7.2 || repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.2 {
+		t.Fatalf("expected persistence retry to store benchmark 7.2, got benchmark=%f persisted=%#v", benchmark, repo.alertBenchmark)
+	}
+}
+
+func TestCheckAlertUsesBenchmarkThenTracksSuccessfulNewLows(t *testing.T) {
+	repo := &stubRepository{}
+	notifier := &recordingNotifier{}
+	svc := NewMonitorService(
+		testMonitorConfig(),
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		notifier,
+	)
+	svc.setLastForex(7.2, time.Now())
+	if _, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.1); err != nil {
+		t.Fatalf("UpdateAlertBenchmark returned error: %v", err)
+	}
+
+	svc.checkAlert(context.Background(), testPricePoint(7.15, 30))
+	if notifier.calls != 0 {
+		t.Fatalf("expected price above benchmark not to alert, got %d calls", notifier.calls)
+	}
+
+	svc.checkAlert(context.Background(), testPricePoint(7.09, 30))
+	if notifier.calls != 1 {
+		t.Fatalf("expected first price below benchmark to alert once, got %d calls", notifier.calls)
+	}
+
+	svc.checkAlert(context.Background(), testPricePoint(7.095, 30))
+	if notifier.calls != 1 {
+		t.Fatalf("expected price above the last successful alert not to alert again, got %d calls", notifier.calls)
+	}
+
+	svc.checkAlert(context.Background(), testPricePoint(7.08, 30))
+	if notifier.calls != 2 {
+		t.Fatalf("expected a new low to alert again, got %d calls", notifier.calls)
+	}
+
+	key := domain.AlertStateKey(domain.ExchangeGate, "BUY", 30)
+	if got := svc.GetAlertStates()[key]; got != 7.08 {
+		t.Fatalf("expected market threshold to advance to 7.08, got %f", got)
+	}
+}
+
 func TestCheckAlertRejectsStaleForex(t *testing.T) {
 	repo := &stubRepository{}
 	notifier := &recordingNotifier{}
@@ -211,6 +359,28 @@ func TestCheckAlertRejectsStaleForex(t *testing.T) {
 
 	if notifier.calls != 0 {
 		t.Fatalf("expected stale forex not to send alert, got %d calls", notifier.calls)
+	}
+}
+
+func TestCheckAlertSkipsDisabledNotifier(t *testing.T) {
+	repo := &stubRepository{}
+	notifier := &disabledTestNotifier{}
+	svc := NewMonitorService(
+		testMonitorConfig(),
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		notifier,
+	)
+	svc.setLastForex(7.2, time.Now())
+
+	svc.checkAlert(context.Background(), testPricePoint(7.0, 30))
+
+	if notifier.calls != 0 {
+		t.Fatalf("expected disabled notifier not to be called, got %d calls", notifier.calls)
+	}
+	if len(svc.GetAlertStates()) != 0 || repo.savedAlert != nil {
+		t.Fatalf("expected disabled notifications not to advance alert state")
 	}
 }
 
@@ -358,12 +528,11 @@ func TestUpdateConfigNotifiesSchedulers(t *testing.T) {
 
 func testMonitorConfig() config.MonitorConfig {
 	return config.MonitorConfig{
-		C2CIntervalMinutes:    3,
-		ForexIntervalHours:    1,
-		ForexMaxAgeHours:      6,
-		AlertThresholdPercent: 0.1,
-		TargetAmounts:         []float64{0, 30},
-		Exchanges:             []string{domain.ExchangeGate},
+		C2CIntervalMinutes: 3,
+		ForexIntervalHours: 1,
+		ForexMaxAgeHours:   6,
+		TargetAmounts:      []float64{0, 30},
+		Exchanges:          []string{domain.ExchangeGate},
 	}
 }
 
@@ -424,6 +593,19 @@ func (n *recordingNotifier) Send(ctx context.Context, subject, body string) erro
 	return nil
 }
 
+type disabledTestNotifier struct {
+	calls int
+}
+
+func (n *disabledTestNotifier) Enabled() bool {
+	return false
+}
+
+func (n *disabledTestNotifier) Send(ctx context.Context, subject, body string) error {
+	n.calls++
+	return nil
+}
+
 type staticTestExchange struct{}
 
 func (staticTestExchange) GetTopPrices(ctx context.Context, symbol, fiat, side string, amount float64) ([]domain.PricePoint, error) {
@@ -458,11 +640,14 @@ func (e *blockingTestExchange) GetTopPrices(ctx context.Context, symbol, fiat, s
 }
 
 type stubRepository struct {
-	latestForex       *domain.ForexRate
-	savedForex        *domain.ForexRate
-	savedAlert        *domain.AlertState
-	deleteAlertErr    error
-	savedPriceBatches int64
+	latestForex          *domain.ForexRate
+	savedForex           *domain.ForexRate
+	savedAlert           *domain.AlertState
+	alertBenchmark       *domain.AlertBenchmark
+	alertBenchmarkErr    error
+	deleteAlertErr       error
+	savedPriceBatches    int64
+	benchmarkSaveCounter int64
 }
 
 func (r *stubRepository) SavePricePoints(ctx context.Context, points []*domain.PricePoint) error {
@@ -516,4 +701,25 @@ func (r *stubRepository) DeleteAlertState(ctx context.Context, exchange, side st
 
 func (r *stubRepository) GetAlertStates(ctx context.Context) ([]*domain.AlertState, error) {
 	return nil, nil
+}
+
+func (r *stubRepository) UpsertAlertBenchmark(ctx context.Context, benchmark *domain.AlertBenchmark) error {
+	if r.alertBenchmarkErr != nil {
+		return r.alertBenchmarkErr
+	}
+	copyBenchmark := *benchmark
+	r.alertBenchmark = &copyBenchmark
+	atomic.AddInt64(&r.benchmarkSaveCounter, 1)
+	return nil
+}
+
+func (r *stubRepository) GetAlertBenchmark(ctx context.Context, pair string) (*domain.AlertBenchmark, error) {
+	if r.alertBenchmarkErr != nil {
+		return nil, r.alertBenchmarkErr
+	}
+	if r.alertBenchmark == nil || r.alertBenchmark.Pair != pair {
+		return nil, nil
+	}
+	copyBenchmark := *r.alertBenchmark
+	return &copyBenchmark, nil
 }

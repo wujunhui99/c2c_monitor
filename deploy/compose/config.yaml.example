@@ -10,7 +10,6 @@ monitor:
   c2c_interval_minutes: 6
   forex_interval_hours: 1
   forex_max_age_hours: 6
-  alert_threshold_percent: 0.1
   target_amounts: [0, 30, 50, 200, 500, 1000]
   exchanges: ["Binance", "Gate", "OKX"]
 
@@ -21,6 +20,7 @@ database:
 
 notification:
   email:
+    enabled: true
     smtp_host: "smtp.qq.com"
     smtp_port: 587
     # Username, password, and From are overridden through Compose environment variables.

@@ -46,6 +46,10 @@ func NormalizeAndValidate(cfg *Config) error {
 	email.Username = strings.TrimSpace(email.Username)
 	email.Password = strings.TrimSpace(email.Password)
 	email.From = strings.TrimSpace(email.From)
+	cfg.Notification.Email.To = trimNonEmptyStrings(cfg.Notification.Email.To)
+	if !email.Enabled {
+		return nil
+	}
 	if email.SMTPHost == "" {
 		return fmt.Errorf("notification.email.smtp_host must not be empty")
 	}
@@ -58,7 +62,6 @@ func NormalizeAndValidate(cfg *Config) error {
 	if email.From == "" {
 		return fmt.Errorf("notification.email.from must not be empty")
 	}
-	cfg.Notification.Email.To = trimNonEmptyStrings(cfg.Notification.Email.To)
 	if len(cfg.Notification.Email.To) == 0 {
 		return fmt.Errorf("notification.email.to must not be empty")
 	}
@@ -74,9 +77,6 @@ func NormalizeMonitorConfig(cfg MonitorConfig) (MonitorConfig, error) {
 	}
 	if cfg.ForexMaxAgeHours <= 0 {
 		return cfg, fmt.Errorf("monitor.forex_max_age_hours must be > 0")
-	}
-	if math.IsNaN(cfg.AlertThresholdPercent) || math.IsInf(cfg.AlertThresholdPercent, 0) || cfg.AlertThresholdPercent < 0 {
-		return cfg, fmt.Errorf("monitor.alert_threshold_percent must be >= 0")
 	}
 	if len(cfg.TargetAmounts) == 0 {
 		return cfg, fmt.Errorf("monitor.target_amounts must not be empty")

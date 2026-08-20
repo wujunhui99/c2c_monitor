@@ -23,6 +23,15 @@ func TestSMTPNotifierRejectsHeaderInjection(t *testing.T) {
 	}
 }
 
+func TestNotifierEnabledStates(t *testing.T) {
+	if !NewSMTPNotifier("smtp.example.com", 587, "user", "password", "from@example.com", []string{"to@example.com"}).Enabled() {
+		t.Fatal("expected SMTP notifier to be enabled")
+	}
+	if NewDisabledNotifier().Enabled() {
+		t.Fatal("expected disabled notifier to report disabled")
+	}
+}
+
 func TestSMTPNotifierHonorsCancelledContext(t *testing.T) {
 	notifier := NewSMTPNotifier(
 		"203.0.113.1",

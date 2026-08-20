@@ -2,8 +2,13 @@
 
 This directory is organized by deployment target:
 
-- `compose/`: Docker Compose deployment files (current production-ready path)
-- `k8s/`: Kubernetes manifests (reserved for upcoming migration)
+- `k8s/`: production K3s deployment for `https://c2c.agenticim.xyz`
+- `compose/`: local or standalone-host deployment
+
+## Production
+
+Production is deployed through `.github/workflows/deploy.yml` using a published full
+commit SHA. See [`k8s/README.md`](k8s/README.md).
 
 ## Compose Quick Start
 
@@ -27,6 +32,4 @@ The backend and MySQL services are not published to the host. Runtime secrets co
 the ignored `.env` file, while notification recipients remain in the ignored
 `config.yaml`.
 
-## Why this structure
-
-Keeping Compose and Kubernetes assets separated avoids config drift and lets both deployment styles evolve independently.
+Compose is not used by the `agenticim.xyz` production cluster.

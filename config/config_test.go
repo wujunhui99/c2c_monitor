@@ -11,12 +11,11 @@ import (
 
 func TestNormalizeMonitorConfig(t *testing.T) {
 	cfg := MonitorConfig{
-		C2CIntervalMinutes:    3,
-		ForexIntervalHours:    1,
-		ForexMaxAgeHours:      6,
-		AlertThresholdPercent: 0.1,
-		TargetAmounts:         []float64{500, 0, 30, 500},
-		Exchanges:             []string{"okx", "binance", "OKX"},
+		C2CIntervalMinutes: 3,
+		ForexIntervalHours: 1,
+		ForexMaxAgeHours:   6,
+		TargetAmounts:      []float64{500, 0, 30, 500},
+		Exchanges:          []string{"okx", "binance", "OKX"},
 	}
 
 	got, err := NormalizeMonitorConfig(cfg)
@@ -35,12 +34,11 @@ func TestNormalizeMonitorConfig(t *testing.T) {
 
 func TestNormalizeMonitorConfigRejectsUnsupportedExchange(t *testing.T) {
 	cfg := MonitorConfig{
-		C2CIntervalMinutes:    3,
-		ForexIntervalHours:    1,
-		ForexMaxAgeHours:      6,
-		AlertThresholdPercent: 0.1,
-		TargetAmounts:         []float64{0, 30},
-		Exchanges:             []string{"binance", "kraken"},
+		C2CIntervalMinutes: 3,
+		ForexIntervalHours: 1,
+		ForexMaxAgeHours:   6,
+		TargetAmounts:      []float64{0, 30},
+		Exchanges:          []string{"binance", "kraken"},
 	}
 
 	if _, err := NormalizeMonitorConfig(cfg); err == nil {
@@ -56,15 +54,15 @@ func TestNormalizeAndValidateAppSecurity(t *testing.T) {
 			AllowedOrigins: []string{" https://example.com ", "https://example.com"},
 		},
 		Monitor: MonitorConfig{
-			C2CIntervalMinutes:    3,
-			ForexIntervalHours:    1,
-			ForexMaxAgeHours:      6,
-			AlertThresholdPercent: 0.1,
-			TargetAmounts:         []float64{0, 30},
-			Exchanges:             []string{"Binance"},
+			C2CIntervalMinutes: 3,
+			ForexIntervalHours: 1,
+			ForexMaxAgeHours:   6,
+			TargetAmounts:      []float64{0, 30},
+			Exchanges:          []string{"Binance"},
 		},
 		Database: DatabaseConfig{DSN: "test"},
 		Notification: NotificationConfig{Email: EmailConfig{
+			Enabled:  true,
 			SMTPHost: "smtp.example.com",
 			SMTPPort: 587,
 			Username: "sender@example.com",
@@ -86,15 +84,15 @@ func TestNormalizeAndValidateRejectsWeakAdminToken(t *testing.T) {
 	cfg := &Config{
 		App: AppConfig{Port: 8001, AdminToken: "short"},
 		Monitor: MonitorConfig{
-			C2CIntervalMinutes:    3,
-			ForexIntervalHours:    1,
-			ForexMaxAgeHours:      6,
-			AlertThresholdPercent: 0.1,
-			TargetAmounts:         []float64{0},
-			Exchanges:             []string{"Binance"},
+			C2CIntervalMinutes: 3,
+			ForexIntervalHours: 1,
+			ForexMaxAgeHours:   6,
+			TargetAmounts:      []float64{0},
+			Exchanges:          []string{"Binance"},
 		},
 		Database: DatabaseConfig{DSN: "test"},
 		Notification: NotificationConfig{Email: EmailConfig{
+			Enabled:  true,
 			SMTPHost: "smtp.example.com",
 			SMTPPort: 587,
 			Username: "sender@example.com",
@@ -109,6 +107,30 @@ func TestNormalizeAndValidateRejectsWeakAdminToken(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndValidateAllowsDisabledEmail(t *testing.T) {
+	cfg := &Config{
+		App: AppConfig{
+			Port:       8001,
+			AdminToken: "0123456789abcdef",
+		},
+		Monitor: MonitorConfig{
+			C2CIntervalMinutes: 3,
+			ForexIntervalHours: 1,
+			ForexMaxAgeHours:   6,
+			TargetAmounts:      []float64{0},
+			Exchanges:          []string{"Gate"},
+		},
+		Database: DatabaseConfig{DSN: "test"},
+		Notification: NotificationConfig{Email: EmailConfig{
+			Enabled: false,
+		}},
+	}
+
+	if err := NormalizeAndValidate(cfg); err != nil {
+		t.Fatalf("expected disabled email to allow empty SMTP settings, got %v", err)
+	}
+}
+
 func TestLoadConfigUsesSecretEnvironmentOverrides(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	body := []byte(`
@@ -120,7 +142,6 @@ monitor:
   c2c_interval_minutes: 3
   forex_interval_hours: 1
   forex_max_age_hours: 6
-  alert_threshold_percent: 0.1
   target_amounts: [0]
   exchanges: ["Gate"]
 database:

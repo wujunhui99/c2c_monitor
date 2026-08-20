@@ -17,10 +17,18 @@ required_files=(
   "docs/product/monitoring.md"
   "docs/operations/runbook.md"
   "docs/exec-plans/active/2026-08-reliability-security.md"
+  "docs/exec-plans/active/2026-08-k3s-production-deploy.md"
   "docs/exec-plans/completed/README.md"
   "docs/tech-debt-tracker.md"
   "deploy/compose/.env.example"
   "deploy/compose/config.yaml.example"
+  "deploy/k8s/application.yaml"
+  "deploy/k8s/database.yaml"
+  "deploy/k8s/ingress.yaml"
+  "deploy/k8s/kustomization.yaml"
+  "deploy/k8s/namespace.yaml"
+  "scripts/deploy-k3s.sh"
+  "scripts/verify-k8s.sh"
   "cmd/monitor/main.go"
 )
 
@@ -48,7 +56,11 @@ if (( agents_lines > 160 )); then
   exit 1
 fi
 
-unformatted="$(gofmt -l $(find cmd config internal -name '*.go' -type f | sort))"
+go_files=()
+while IFS= read -r file; do
+  go_files+=("$file")
+done < <(find cmd config internal -name '*.go' -type f | sort)
+unformatted="$(gofmt -l "${go_files[@]}")"
 if [[ -n "$unformatted" ]]; then
   echo "Go files need gofmt:" >&2
   echo "$unformatted" >&2
@@ -59,7 +71,13 @@ if ! command -v node >/dev/null 2>&1; then
   echo "node is required for frontend JavaScript syntax checks" >&2
   exit 1
 fi
+if ! command -v ruby >/dev/null 2>&1; then
+  echo "ruby is required for YAML syntax checks" >&2
+  exit 1
+fi
 
+bash -n scripts/deploy-k3s.sh
+bash scripts/verify-k8s.sh
 git diff --check
 go test ./...
 go vet ./...

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -20,27 +21,32 @@ import (
 )
 
 type MonitorService struct {
-	cfg                config.MonitorConfig
-	repo               domain.IRepository
-	exchanges          map[string]domain.IExchange
-	forex              domain.IForex
-	notifier           domain.INotifier
-	lastForex          float64
-	lastForexAt        time.Time
-	cfgMu              sync.RWMutex
-	forexMu            sync.RWMutex
-	scheduleMu         sync.Mutex
-	configChanged      chan struct{}
-	alertCache         map[string]time.Time             // To prevent spamming arbitrage alerts
-	errorAlertCache    map[string]time.Time             // To prevent spamming error alerts
-	triggeredLowPrices map[string]float64               // To store the lowest triggered price for dynamic threshold
-	serviceStatus      map[string]*domain.ServiceStatus // Track status of each service
-	downEventLogger    *slog.Logger
-	mu                 sync.RWMutex // Mutex for protecting maps
+	cfg                 config.MonitorConfig
+	repo                domain.IRepository
+	exchanges           map[string]domain.IExchange
+	forex               domain.IForex
+	notifier            domain.INotifier
+	lastForex           float64
+	lastForexAt         time.Time
+	cfgMu               sync.RWMutex
+	forexMu             sync.RWMutex
+	benchmarkMu         sync.RWMutex
+	alertBenchmark      float64
+	alertBenchmarkDirty bool
+	scheduleMu          sync.Mutex
+	configChanged       chan struct{}
+	errorAlertCache     map[string]time.Time             // To prevent spamming error alerts
+	triggeredLowPrices  map[string]float64               // To store the lowest triggered price for dynamic threshold
+	serviceStatus       map[string]*domain.ServiceStatus // Track status of each service
+	downEventLogger     *slog.Logger
+	mu                  sync.RWMutex // Mutex for protecting maps
 }
 
 const forexServiceName = "Forex (Reference Sources)"
+const alertBenchmarkPair = "USDCNY"
 const serviceDownLogPath = "logs/service_down.log"
+
+var ErrInvalidAlertBenchmark = errors.New("invalid alert benchmark")
 
 func NewMonitorService(
 	cfg config.MonitorConfig,
@@ -57,7 +63,6 @@ func NewMonitorService(
 		forex:              forex,
 		notifier:           notifier,
 		configChanged:      make(chan struct{}),
-		alertCache:         make(map[string]time.Time),
 		errorAlertCache:    make(map[string]time.Time),
 		triggeredLowPrices: make(map[string]float64),
 		serviceStatus:      make(map[string]*domain.ServiceStatus),
@@ -193,7 +198,7 @@ func (s *MonitorService) updateServiceHealth(name, statusValue, message string) 
 	shouldSendErrorAlert := false
 	if statusValue != "Error" {
 		delete(s.errorAlertCache, name)
-	} else if statusValue == "Error" {
+	} else if statusValue == "Error" && s.notifierEnabled() {
 		if _, exists := s.errorAlertCache[name]; !exists {
 			s.errorAlertCache[name] = time.Now()
 			shouldSendErrorAlert = true
@@ -236,6 +241,9 @@ func (s *MonitorService) logServiceDown(name string, err error) {
 }
 
 func (s *MonitorService) sendErrorAlert(name string, err error) {
+	if !s.notifierEnabled() {
+		return
+	}
 	subject := fmt.Sprintf("⚠️ [C2C Monitor] Service Down: %s", name)
 	body := fmt.Sprintf(`
 		<h3>Service Status Change</h3>
@@ -282,12 +290,30 @@ func (s *MonitorService) loadPersistedAlertStates(ctx context.Context) {
 	for _, state := range states {
 		key := domain.AlertStateKey(state.Exchange, state.Side, state.TargetAmount)
 		s.triggeredLowPrices[key] = state.TriggerPrice
-		if !state.LastAlertAt.IsZero() {
-			s.alertCache[key] = state.LastAlertAt
-		}
 	}
 
 	slog.Info("loaded persisted alert states", "event", "alert_states_loaded", "count", len(states))
+}
+
+func (s *MonitorService) loadPersistedAlertBenchmark(ctx context.Context) {
+	benchmark, err := s.repo.GetAlertBenchmark(ctx, alertBenchmarkPair)
+	if err != nil {
+		slog.Error("failed to load persisted alert benchmark", "event", "alert_benchmark_load_failed", "error", err)
+		return
+	}
+	if benchmark == nil {
+		return
+	}
+	if math.IsNaN(benchmark.Price) || math.IsInf(benchmark.Price, 0) || benchmark.Price <= 0 {
+		slog.Error("persisted alert benchmark is invalid", "event", "alert_benchmark_invalid", "price", benchmark.Price)
+		return
+	}
+
+	s.benchmarkMu.Lock()
+	s.alertBenchmark = benchmark.Price
+	s.alertBenchmarkDirty = false
+	s.benchmarkMu.Unlock()
+	slog.Info("loaded persisted alert benchmark", "event", "alert_benchmark_loaded", "price", benchmark.Price)
 }
 
 // Start begins the monitoring loops
@@ -296,6 +322,7 @@ func (s *MonitorService) Start(ctx context.Context) {
 
 	// Recover persisted dynamic thresholds and cooldown timestamps.
 	s.loadPersistedAlertStates(ctx)
+	s.loadPersistedAlertBenchmark(ctx)
 
 	// Initial Forex fetch
 	s.updateForex(ctx)
@@ -394,6 +421,7 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 				return
 			}
 			s.setLastForex(latest.Rate, latest.CreatedAt)
+			s.reconcileAlertBenchmark(ctx, latest.Rate)
 			slog.Warn("using cached forex rate from database", "event", "forex_cache_used", "pair", "USDCNY", "rate", latest.Rate, "source", latest.Source, "observed_at", latest.CreatedAt)
 		}
 		return
@@ -402,6 +430,7 @@ func (s *MonitorService) updateForex(ctx context.Context) {
 	sourceName := s.forexSourceName()
 	now := time.Now()
 	s.setLastForex(rate, now)
+	s.reconcileAlertBenchmark(ctx, rate)
 	slog.Info("updated forex rate", "event", "forex_updated", "pair", "USDCNY", "rate", rate, "source", sourceName)
 
 	// Save to DB
@@ -679,9 +708,6 @@ func (s *MonitorService) GetServiceStatuses() map[string]*domain.ServiceStatus {
 }
 
 func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
-	// Logic: (Forex - Price) / Forex >= Threshold
-	// OR if already triggered, Price < TriggeredLowPrice
-
 	if p.Price <= 0 {
 		return
 	}
@@ -690,53 +716,38 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 	if err != nil {
 		return
 	}
-	cfg := s.getConfigSnapshot()
+	benchmarkPrice := s.reconcileAlertBenchmark(ctx, forexRate)
 
 	spread := (forexRate - p.Price) / forexRate * 100
 	alertKey := domain.AlertStateKey(p.Exchange, p.Side, p.TargetAmount)
 
 	s.mu.RLock()
 	triggeredPrice, isTriggered := s.triggeredLowPrices[alertKey]
-	lastSent, lastSentExists := s.alertCache[alertKey]
 	s.mu.RUnlock()
 
-	shouldAlert := false
+	effectiveBenchmark := benchmarkPrice
 	alertType := "Initial" // Initial or Lower
-
 	if isTriggered {
-		// Condition B: Price is LOWER than the recorded lowest price
-		if p.Price < triggeredPrice {
-			shouldAlert = true
-			alertType = "Lower"
-		}
-	} else {
-		// Condition A: Standard threshold check
-		if spread >= cfg.AlertThresholdPercent {
-			// Check cooldown only for Initial alert (or maybe both? User said "set new threshold", implies continuous monitoring)
-			// Let's keep cooldown for Initial to avoid oscillation around threshold.
-			// For "Lower", usually we want to know immediately if it drops further.
-			// But let's apply a small cooldown or check if significant drop?
-			// User request: "If 1st triggers, set threshold to record lowest price."
-
-			if lastSentExists && time.Since(lastSent) < 30*time.Minute {
-				return
-			}
-			shouldAlert = true
+		alertType = "Lower"
+		if triggeredPrice < effectiveBenchmark {
+			effectiveBenchmark = triggeredPrice
 		}
 	}
 
-	if shouldAlert {
-		now := time.Now()
+	if p.Price >= effectiveBenchmark || !s.notifierEnabled() {
+		return
+	}
 
-		// Trigger Alert
-		var subject string
-		if alertType == "Lower" {
-			subject = fmt.Sprintf("📉 New Low! %s %s USDT Price: %.4f (Was: %.4f)", p.Exchange, p.Merchant, p.Price, triggeredPrice)
-		} else {
-			subject = fmt.Sprintf("🚨 Opportunity! %s %s USDT Price: %.4f (Spread: %.2f%%)", p.Exchange, p.Merchant, p.Price, spread)
-		}
+	now := time.Now()
 
-		body := fmt.Sprintf(`
+	var subject string
+	if alertType == "Lower" {
+		subject = fmt.Sprintf("📉 New Low! %s %s USDT Price: %.4f (Benchmark: %.4f)", p.Exchange, p.Merchant, p.Price, effectiveBenchmark)
+	} else {
+		subject = fmt.Sprintf("🚨 Opportunity! %s %s USDT Price: %.4f (Benchmark: %.4f)", p.Exchange, p.Merchant, p.Price, effectiveBenchmark)
+	}
+
+	body := fmt.Sprintf(`
 			<h3>C2C Arbitrage Opportunity</h3>
 			<p><b>Exchange:</b> %s</p>
 			<p><b>Merchant:</b> %s</p>
@@ -745,35 +756,44 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 			<p><b>Max Amount:</b> %.0f CNY</p>
 			<p><b>Pay Methods:</b> %s</p>
 			<p><b>Current Price:</b> %.4f CNY</p>
+			<p><b>Alert Benchmark:</b> %.4f CNY</p>
 			<p><b>Forex Rate:</b> %.4f CNY</p>
 			<p><b>Spread:</b> <span style="color:green; font-weight:bold;">%.2f%%</span></p>
 			<p><i>Threshold Mode: %s</i></p>
 			<br/>
 			<p>Time: %s</p>
-		`, html.EscapeString(p.Exchange), html.EscapeString(p.Merchant), html.EscapeString(p.Side), p.MinAmount, p.MaxAmount, html.EscapeString(p.PayMethods), p.Price, forexRate, spread, alertType, now.Format(time.RFC3339))
+		`, html.EscapeString(p.Exchange), html.EscapeString(p.Merchant), html.EscapeString(p.Side), p.MinAmount, p.MaxAmount, html.EscapeString(p.PayMethods), p.Price, effectiveBenchmark, forexRate, spread, alertType, now.Format(time.RFC3339))
 
-		slog.Warn("triggering price alert", "event", "price_alert_triggered", "alert_type", alertType, "exchange", p.Exchange, "merchant", p.Merchant, "price", p.Price, "spread", spread)
+	slog.Warn("triggering price alert", "event", "price_alert_triggered", "alert_type", alertType, "exchange", p.Exchange, "merchant", p.Merchant, "price", p.Price, "benchmark", effectiveBenchmark, "forex_rate", forexRate, "spread", spread)
 
-		if err := s.notifier.Send(ctx, subject, body); err != nil {
-			slog.Error("failed to send alert email", "event", "price_alert_send_failed", "exchange", p.Exchange, "merchant", p.Merchant, "error", err)
-			return
-		}
-
-		if err := s.repo.UpsertAlertState(ctx, &domain.AlertState{
-			Exchange:     p.Exchange,
-			Side:         p.Side,
-			TargetAmount: p.TargetAmount,
-			TriggerPrice: p.Price,
-			LastAlertAt:  now,
-		}); err != nil {
-			slog.Error("failed to persist alert state", "event", "alert_state_persist_failed", "key", alertKey, "error", err)
-		}
-
-		s.mu.Lock()
-		s.alertCache[alertKey] = now
-		s.triggeredLowPrices[alertKey] = p.Price
-		s.mu.Unlock()
+	if err := s.notifier.Send(ctx, subject, body); err != nil {
+		slog.Error("failed to send alert email", "event", "price_alert_send_failed", "exchange", p.Exchange, "merchant", p.Merchant, "error", err)
+		return
 	}
+
+	if err := s.repo.UpsertAlertState(ctx, &domain.AlertState{
+		Exchange:     p.Exchange,
+		Side:         p.Side,
+		TargetAmount: p.TargetAmount,
+		TriggerPrice: p.Price,
+		LastAlertAt:  now,
+	}); err != nil {
+		slog.Error("failed to persist alert state", "event", "alert_state_persist_failed", "key", alertKey, "error", err)
+	}
+
+	s.mu.Lock()
+	s.triggeredLowPrices[alertKey] = p.Price
+	s.mu.Unlock()
+}
+
+func (s *MonitorService) notifierEnabled() bool {
+	type enabledNotifier interface {
+		Enabled() bool
+	}
+	if notifier, ok := s.notifier.(enabledNotifier); ok {
+		return notifier.Enabled()
+	}
+	return s.notifier != nil
 }
 
 // ResetAlertState resets the dynamic threshold for a specific market
@@ -785,7 +805,6 @@ func (s *MonitorService) ResetAlertState(ctx context.Context, exchange, side str
 
 	s.mu.Lock()
 	delete(s.triggeredLowPrices, key)
-	delete(s.alertCache, key)
 	s.mu.Unlock()
 
 	slog.Info("reset alert state", "event", "alert_state_reset", "key", key)
@@ -826,6 +845,52 @@ func (s *MonitorService) GetConfig() config.MonitorConfig {
 	return s.getConfigSnapshot()
 }
 
+func (s *MonitorService) GetAlertBenchmark(ctx context.Context) (float64, float64, error) {
+	forexRate, err := s.usableForex(time.Now())
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return s.reconcileAlertBenchmark(ctx, forexRate), forexRate, nil
+}
+
+func (s *MonitorService) UpdateAlertBenchmark(ctx context.Context, requestedPrice float64) (float64, float64, error) {
+	forexRate, err := s.usableForex(time.Now())
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if math.IsNaN(requestedPrice) || math.IsInf(requestedPrice, 0) || requestedPrice <= 0 {
+		return 0, forexRate, fmt.Errorf("%w: benchmark_price must be greater than 0", ErrInvalidAlertBenchmark)
+	}
+	if requestedPrice >= forexRate {
+		return 0, forexRate, fmt.Errorf("%w: benchmark_price must be lower than the current Forex rate %.4f", ErrInvalidAlertBenchmark, forexRate)
+	}
+
+	s.benchmarkMu.Lock()
+	defer s.benchmarkMu.Unlock()
+
+	currentPrice := forexRate
+	if s.alertBenchmark > 0 && s.alertBenchmark < currentPrice {
+		currentPrice = s.alertBenchmark
+	}
+	if requestedPrice >= currentPrice {
+		return currentPrice, forexRate, fmt.Errorf("%w: benchmark_price must be lower than the current benchmark %.4f", ErrInvalidAlertBenchmark, currentPrice)
+	}
+
+	if err := s.repo.UpsertAlertBenchmark(ctx, &domain.AlertBenchmark{
+		Pair:  alertBenchmarkPair,
+		Price: requestedPrice,
+	}); err != nil {
+		return 0, forexRate, fmt.Errorf("persist alert benchmark: %w", err)
+	}
+	s.alertBenchmark = requestedPrice
+	s.alertBenchmarkDirty = false
+
+	slog.Info("updated alert benchmark", "event", "alert_benchmark_updated", "price", requestedPrice, "forex_rate", forexRate)
+	return requestedPrice, forexRate, nil
+}
+
 func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) error {
 	normalizedCfg, err := config.NormalizeMonitorConfig(newCfg)
 	if err != nil {
@@ -844,4 +909,30 @@ func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) error {
 func (s *MonitorService) ReadinessError() error {
 	_, err := s.usableForex(time.Now())
 	return err
+}
+
+func (s *MonitorService) reconcileAlertBenchmark(ctx context.Context, forexRate float64) float64 {
+	s.benchmarkMu.Lock()
+	defer s.benchmarkMu.Unlock()
+
+	nextPrice := forexRate
+	if s.alertBenchmark > 0 && s.alertBenchmark < nextPrice {
+		nextPrice = s.alertBenchmark
+	}
+	if s.alertBenchmark == nextPrice && !s.alertBenchmarkDirty {
+		return nextPrice
+	}
+
+	s.alertBenchmark = nextPrice
+	if err := s.repo.UpsertAlertBenchmark(ctx, &domain.AlertBenchmark{
+		Pair:  alertBenchmarkPair,
+		Price: nextPrice,
+	}); err != nil {
+		s.alertBenchmarkDirty = true
+		slog.Error("failed to persist reconciled alert benchmark", "event", "alert_benchmark_persist_failed", "price", nextPrice, "forex_rate", forexRate, "error", err)
+		return nextPrice
+	}
+	s.alertBenchmarkDirty = false
+
+	return nextPrice
 }

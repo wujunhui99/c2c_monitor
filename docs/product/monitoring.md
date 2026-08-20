@@ -27,16 +27,23 @@
 
 ### 告警
 
-- 初次触发条件：
-  - `spread = (forex - c2c_price) / forex * 100`
-  - `spread >= alert_threshold_percent`
-- 首次触发后进入动态低价跟踪
-- 后续只有出现更低价格才继续触发 `Lower` 告警
-- 告警状态持久化到 `alert_states`，重启后恢复
-- 只有 SMTP 发送成功后，才推进内存和数据库中的动态低价状态
-- SMTP 失败时本次状态不推进，后续轮次仍可重试告警
+- 全局标定价首次默认为当前可用 `USD/CNY` Forex 汇率，并持久化到 `alert_benchmarks`
+- 每次使用标定价前执行 `benchmark = min(benchmark, current_forex)`：
+  - Forex 上涨时标定价不变
+  - Forex 下跌时标定价自动下调并持久化
+- 前端可通过 `POST /api/alerts/benchmark` 手动下调标定价：
+  - 新值必须大于 `0`
+  - 新值必须严格低于当前 Forex
+  - 新值必须严格低于当前标定价，不能手动抬高
+- 每个交易所、方向和金额档位独立维护最近一次成功告警价格
+- 实际比较值为 `min(global_benchmark, last_successful_alert_price)`
+- 当前 C2C 价格严格低于实际比较值时发送邮件
+- 只有 SMTP 发送成功后，才把该市场的最近告警价格推进到当前 C2C 价格
+- SMTP 失败时市场新低状态不推进，后续轮次仍可重试
+- `notification.email.enabled=false` 时不尝试发送邮件，也不推进市场新低状态；全局标定仍按 Forex 只降不升
+- 市场新低状态持久化到 `alert_states`，重启后恢复
 - Forex 参考价超过 `forex_max_age_hours` 后不再参与告警计算
-- 删除持久化告警状态失败时，内存状态保持不变，避免重启后状态反弹
+- 删除持久化市场新低失败时，内存状态保持不变，避免重启后状态反弹
 
 ### 服务状态
 
@@ -55,16 +62,19 @@
 - `GET /api/meta` 返回当前服务版本以及前端渲染所需的交易所元数据
 - `GET /api/changelog` 返回版本变更记录
 - `POST /api/config` 更新运行中配置，需要 `Authorization: Bearer <admin_token>`
-- `POST /api/alerts/reset` 重置动态告警状态，同样需要管理员 Bearer token
-- 当前更新只影响内存态，不回写 `config.yaml`
+- `GET /api/alerts/benchmark` 返回当前标定价和当前 Forex
+- `POST /api/alerts/benchmark` 持久化一个更低的全局标定价，需要管理员 Bearer token
+- `POST /api/alerts/reset` 清除指定市场的最近告警价格，使其重新使用全局标定价，同样需要管理员 Bearer token
+- `POST /api/config` 只影响内存态且不回写 `config.yaml`；告警标定价单独持久化到数据库
 - 前端只把管理员 token 保存在当前标签页的 `sessionStorage`，关闭标签页后自动清除
 
 ### 安全边界
 
 - `app.admin_token` 启动时必须显式配置，长度至少 16 个字符
 - 跨域 API 请求只允许 `app.allowed_origins` 中列出的来源
-- Compose 生产路径使用同源 Nginx 代理，默认不需要开启 CORS
+- 生产 K3s 前端使用同源 Nginx 代理，默认不需要开启 CORS
 - 管理写接口限制请求体大小；HTTP 服务、交易所请求和 SMTP 发送都有明确超时
+- 没有 SMTP 凭据的部署必须显式关闭邮件通知，不能用持续失败的伪配置冒充可用通知
 
 ## 明确非目标
 

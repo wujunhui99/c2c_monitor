@@ -1,6 +1,6 @@
 # C2C Monitor
 
-`c2c_monitor` 用来持续抓取 `USDT/CNY` C2C 价格、对照 `USD/CNY` 外汇参考价计算价差，并在满足阈值时触发邮件告警，同时提供历史走势 API 给前端展示。
+`c2c_monitor` 用来持续抓取 `USDT/CNY` C2C 价格、对照 `USD/CNY` 外汇参考价维护只降不升的告警标定价，并在 C2C 价格创新低时触发邮件告警，同时提供历史走势 API 给前端展示。
 
 ## Quick Start
 
@@ -40,7 +40,7 @@
    - 存活检查：`http://localhost:8001/healthz`
    - 业务就绪检查：`http://localhost:8001/readyz`
 
-管理员 token 只用于保存运行时配置和重置告警。前端把它保存在当前标签页的
+管理员 token 只用于保存运行时配置、下调告警标定价和重置市场新低。前端把它保存在当前标签页的
 `sessionStorage`，关闭标签页后清除。
 
 ## 常用命令
@@ -60,6 +60,7 @@
 - [`docs/architecture/overview.md`](docs/architecture/overview.md)：架构边界与代码布局
 - [`docs/operations/runbook.md`](docs/operations/runbook.md)：运行、调试、排障
 - [`docs/exec-plans/active/2026-08-reliability-security.md`](docs/exec-plans/active/2026-08-reliability-security.md)：当前迭代计划
+- [`docs/exec-plans/active/2026-08-k3s-production-deploy.md`](docs/exec-plans/active/2026-08-k3s-production-deploy.md)：生产部署计划
 
 ## 设计原则
 

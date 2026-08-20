@@ -2,17 +2,16 @@ package mysql
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"c2c_monitor/internal/domain"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 func TestRunMigrationsCreatesSchemaAndTracksVersion(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("failed to open sqlite database: %v", err)
-	}
+	db := openMigrationTestDB(t)
 
 	repo := NewMySQLRepository(db)
 	if err := repo.RunMigrations(context.Background()); err != nil {
@@ -58,4 +57,55 @@ func TestRunMigrationsCreatesSchemaAndTracksVersion(t *testing.T) {
 			t.Fatalf("expected index %s to exist", index.name)
 		}
 	}
+}
+
+func TestAlertBenchmarkPersistence(t *testing.T) {
+	db := openMigrationTestDB(t)
+
+	repo := NewMySQLRepository(db)
+	if err := repo.RunMigrations(context.Background()); err != nil {
+		t.Fatalf("RunMigrations returned error: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := repo.UpsertAlertBenchmark(ctx, &domain.AlertBenchmark{
+		Pair:  "USDCNY",
+		Price: 7.1,
+	}); err != nil {
+		t.Fatalf("UpsertAlertBenchmark returned error: %v", err)
+	}
+
+	benchmark, err := repo.GetAlertBenchmark(ctx, "USDCNY")
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark returned error: %v", err)
+	}
+	if benchmark == nil || benchmark.Price != 7.1 {
+		t.Fatalf("expected persisted benchmark 7.1, got %#v", benchmark)
+	}
+
+	if err := repo.UpsertAlertBenchmark(ctx, &domain.AlertBenchmark{
+		Pair:  "USDCNY",
+		Price: 7.05,
+	}); err != nil {
+		t.Fatalf("second UpsertAlertBenchmark returned error: %v", err)
+	}
+
+	benchmark, err = repo.GetAlertBenchmark(ctx, "USDCNY")
+	if err != nil {
+		t.Fatalf("second GetAlertBenchmark returned error: %v", err)
+	}
+	if benchmark == nil || benchmark.Price != 7.05 {
+		t.Fatalf("expected updated benchmark 7.05, got %#v", benchmark)
+	}
+}
+
+func openMigrationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+	return db
 }

@@ -1,0 +1,3 @@
+const AppConfig = {
+    apiBaseUrl: ''
+};

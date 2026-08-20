@@ -6,6 +6,10 @@ const state = {
         forex_max_age_hours: 6,
         target_amounts: []
     },
+    alertBenchmark: {
+        benchmark_price: null,
+        forex_rate: null
+    },
     version: 'unknown',
     supportedExchanges: [],
     historyKeys: {},
@@ -22,7 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initChart();
     
-    Promise.all([loadMeta(), loadConfig()]).then(() => {
+    Promise.all([loadMeta(), loadConfig(), loadAlertBenchmark()]).then(() => {
         // After config loaded, load initial data
         if (state.config.target_amounts && state.config.target_amounts.length > 0) {
             state.currentAmount = state.config.target_amounts[0];
@@ -43,6 +47,13 @@ function getElements() {
         c2cIntervalInput: document.getElementById('c2c-interval'),
         forexIntervalInput: document.getElementById('forex-interval'),
         forexMaxAgeInput: document.getElementById('forex-max-age'),
+        alertBenchmarkInput: document.getElementById('alert-benchmark-input'),
+        currentForexRate: document.getElementById('current-forex-rate'),
+        currentAlertBenchmark: document.getElementById('current-alert-benchmark'),
+        dashboardBenchmark: document.getElementById('dashboard-benchmark'),
+        alertBenchmarkLimit: document.getElementById('alert-benchmark-limit'),
+        saveBenchmarkBtn: document.getElementById('save-benchmark-btn'),
+        benchmarkSaveStatus: document.getElementById('benchmark-save-status'),
         adminTokenInput: document.getElementById('admin-token'),
         amountTagsContainer: document.getElementById('amount-tags'),
         newAmountInput: document.getElementById('new-amount'),
@@ -82,6 +93,7 @@ function initTabs() {
             if (target === 'dashboard') {
                 loadActiveAlerts();
                 loadSystemStatus();
+                loadAlertBenchmark().then(loadChartData);
             }
         });
     });
@@ -222,10 +234,11 @@ function bindEvents() {
     }
 
     if (el.refreshBtn) {
-        el.refreshBtn.addEventListener('click', () => {
-            loadChartData();
+        el.refreshBtn.addEventListener('click', async () => {
             loadActiveAlerts();
             loadSystemStatus();
+            await loadAlertBenchmark();
+            loadChartData();
         });
     }
 
@@ -235,6 +248,9 @@ function bindEvents() {
     }
     if (el.saveConfigBtn) {
         el.saveConfigBtn.addEventListener('click', saveConfig);
+    }
+    if (el.saveBenchmarkBtn) {
+        el.saveBenchmarkBtn.addEventListener('click', saveAlertBenchmark);
     }
     if (el.adminTokenInput) {
         el.adminTokenInput.value = sessionStorage.getItem('c2cAdminToken') || '';
@@ -308,8 +324,94 @@ async function loadActiveAlerts() {
     }
 }
 
+async function loadAlertBenchmark() {
+    const el = getElements();
+
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/benchmark`);
+        if (!response.ok) throw new Error(await readErrorResponse(response) || 'Failed to fetch alert benchmark');
+        const json = await response.json();
+        state.alertBenchmark = {
+            benchmark_price: Number(json.data?.benchmark_price),
+            forex_rate: Number(json.data?.forex_rate)
+        };
+        renderAlertBenchmark();
+        setBenchmarkStatus('', false);
+    } catch (error) {
+        console.error('Error loading alert benchmark:', error);
+        state.alertBenchmark = { benchmark_price: null, forex_rate: null };
+        renderAlertBenchmark();
+        if (el.benchmarkSaveStatus) {
+            el.benchmarkSaveStatus.textContent = 'Benchmark unavailable';
+            el.benchmarkSaveStatus.style.color = 'red';
+        }
+    }
+}
+
+async function saveAlertBenchmark() {
+    const el = getElements();
+    const benchmarkPrice = Number(el.alertBenchmarkInput.value);
+    const currentBenchmark = state.alertBenchmark.benchmark_price;
+    const forexRate = state.alertBenchmark.forex_rate;
+
+    if (!Number.isFinite(benchmarkPrice) || benchmarkPrice <= 0) {
+        setBenchmarkStatus('Enter a benchmark greater than 0', true);
+        return;
+    }
+    if (!Number.isFinite(forexRate) || !Number.isFinite(currentBenchmark)) {
+        setBenchmarkStatus('Current Forex and benchmark are unavailable', true);
+        return;
+    }
+    if (benchmarkPrice >= forexRate) {
+        setBenchmarkStatus(`Benchmark must be below ${forexRate.toFixed(4)} CNY`, true);
+        return;
+    }
+    if (benchmarkPrice >= currentBenchmark) {
+        setBenchmarkStatus(`Benchmark must be below ${currentBenchmark.toFixed(4)} CNY`, true);
+        return;
+    }
+
+    const token = getAdminToken();
+    if (!token) return;
+
+    try {
+        const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/benchmark`, {
+            method: 'POST',
+            headers: adminHeaders(token),
+            body: JSON.stringify({ benchmark_price: benchmarkPrice })
+        });
+
+        if (response.ok) {
+            const json = await response.json();
+            state.alertBenchmark = {
+                benchmark_price: Number(json.data?.benchmark_price),
+                forex_rate: Number(json.data?.forex_rate)
+            };
+            el.alertBenchmarkInput.value = '';
+            renderAlertBenchmark();
+            setBenchmarkStatus('Benchmark saved', false);
+            loadChartData();
+        } else if (response.status === 401) {
+            clearAdminToken();
+            setBenchmarkStatus('Admin token rejected', true);
+        } else {
+            setBenchmarkStatus(await readErrorResponse(response) || 'Failed to save benchmark', true);
+        }
+    } catch (error) {
+        console.error('Error saving alert benchmark:', error);
+        setBenchmarkStatus('Benchmark save failed', true);
+    }
+}
+
+function setBenchmarkStatus(message, isError) {
+    const el = getElements();
+    if (!el.benchmarkSaveStatus) return;
+    el.benchmarkSaveStatus.textContent = message;
+    el.benchmarkSaveStatus.style.color = isError ? 'red' : '';
+}
+
 async function resetAlert(key) {
-    if (!confirm('Are you sure you want to reset this dynamic threshold?')) return;
+    if (!confirm('Reset this market to the global alert benchmark?')) return;
 
     const parts = parseAlertKey(key);
     if (!parts) {
@@ -357,7 +459,7 @@ function renderActiveAlerts(states) {
         const td = document.createElement('td');
         td.colSpan = 3;
         td.className = 'empty-table-state';
-        td.textContent = 'No active dynamic thresholds. (Using default percentage alerts)';
+        td.textContent = 'No market-specific lows yet. Using the global alert benchmark.';
         tr.appendChild(td);
         el.alertStatusTableBody.appendChild(tr);
         return;
@@ -579,6 +681,45 @@ function renderConfigUI() {
     }
 }
 
+function renderAlertBenchmark() {
+    const el = getElements();
+    const benchmarkPrice = state.alertBenchmark.benchmark_price;
+    const forexRate = state.alertBenchmark.forex_rate;
+    const hasBenchmark = Number.isFinite(benchmarkPrice) && benchmarkPrice > 0;
+    const hasForex = Number.isFinite(forexRate) && forexRate > 0;
+
+    if (el.currentForexRate) {
+        el.currentForexRate.textContent = hasForex ? `${forexRate.toFixed(4)} CNY` : '--';
+    }
+    if (el.currentAlertBenchmark) {
+        el.currentAlertBenchmark.textContent = hasBenchmark ? `${benchmarkPrice.toFixed(4)} CNY` : '--';
+    }
+    if (el.dashboardBenchmark) {
+        el.dashboardBenchmark.textContent = hasBenchmark ? `${benchmarkPrice.toFixed(4)} CNY` : '--';
+    }
+    if (el.alertBenchmarkInput) {
+        const upperBound = hasBenchmark && hasForex && Math.min(benchmarkPrice, forexRate) > 0.0001
+            ? Math.min(benchmarkPrice, forexRate)
+            : null;
+        if (upperBound !== null) {
+            el.alertBenchmarkInput.max = Math.max(0.0001, upperBound - 0.0001).toFixed(4);
+            el.alertBenchmarkInput.placeholder = `< ${upperBound.toFixed(4)}`;
+        } else {
+            el.alertBenchmarkInput.removeAttribute('max');
+            el.alertBenchmarkInput.placeholder = 'Benchmark unavailable';
+        }
+        el.alertBenchmarkInput.disabled = upperBound === null;
+    }
+    if (el.saveBenchmarkBtn) {
+        el.saveBenchmarkBtn.disabled = !(hasBenchmark && hasForex);
+    }
+    if (el.alertBenchmarkLimit) {
+        el.alertBenchmarkLimit.textContent = hasBenchmark && hasForex
+            ? `Must be below ${Math.min(benchmarkPrice, forexRate).toFixed(4)} CNY`
+            : '';
+    }
+}
+
 function updateChart(data) {
     const processData = (list) => {
         if (!list) return [];
@@ -616,7 +757,20 @@ function updateChart(data) {
             ...exchangeSeries,
             buildSeries(FOREX_SERIES_NAME, forexData, {
                 itemStyle: { color: '#dc3545' },
-                lineStyle: { type: 'dashed', width: 2 }
+                lineStyle: { type: 'dashed', width: 2 },
+                markLine: Number.isFinite(state.alertBenchmark.benchmark_price) ? {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: { color: '#8b5cf6', type: 'dotted', width: 2 },
+                    label: {
+                        formatter: `标定 ${state.alertBenchmark.benchmark_price.toFixed(4)}`,
+                        position: 'insideEndTop',
+                        color: '#5b21b6',
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                        padding: [2, 4]
+                    },
+                    data: [{ yAxis: state.alertBenchmark.benchmark_price }]
+                } : undefined
             })
         ]
     });

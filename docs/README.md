@@ -10,7 +10,8 @@
 4. [`architecture/external-dependencies.md`](architecture/external-dependencies.md)
 5. [`operations/runbook.md`](operations/runbook.md)
 6. [`exec-plans/active/2026-08-reliability-security.md`](exec-plans/active/2026-08-reliability-security.md)
-7. [`releases.json`](releases.json)
+7. [`exec-plans/active/2026-08-k3s-production-deploy.md`](exec-plans/active/2026-08-k3s-production-deploy.md)
+8. [`releases.json`](releases.json)
 
 ## 文档职责
 

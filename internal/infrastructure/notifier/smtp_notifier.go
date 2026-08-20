@@ -39,6 +39,10 @@ func NewSMTPNotifier(host string, port int, username, password, from string, to 
 	}
 }
 
+func (n *SMTPNotifier) Enabled() bool {
+	return true
+}
+
 // Send implements domain.INotifier
 func (n *SMTPNotifier) Send(ctx context.Context, subject, body string) error {
 	if err := validateHeaderValue("subject", subject); err != nil {

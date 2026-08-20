@@ -2,7 +2,7 @@
 
 ## 系统目标
 
-系统负责抓取多个交易所的 `USDT/CNY` C2C 买入价格，对照 `USD/CNY` 外汇汇率计算折价幅度，持久化历史数据，并在满足阈值时通过 SMTP 发送告警。
+系统负责抓取多个交易所的 `USDT/CNY` C2C 买入价格，对照 `USD/CNY` 外汇汇率维护只降不升的全局标定价，持久化历史与告警状态，并在价格低于有效标定时通过 SMTP 发送告警。
 
 ## 代码布局
 
@@ -26,12 +26,16 @@
   - MySQL DAO、版本化 schema migration、查询索引、原始数据与聚合表读写
 - `frontend`
   - 独立静态页面，只依赖后端 API；动态文本默认通过 DOM `textContent` 渲染
+- `deploy/k8s`
+  - 生产环境单一事实来源：独立 namespace、MySQL StatefulSet、应用 Deployments、Traefik Ingress
+- `scripts/deploy-k3s.sh`
+  - 负责首次密钥生成、Kubernetes Secret 同步、不可变镜像渲染、rollout、证书和公网冒烟验证
 
 ## 关键不变量
 
 - 交易所名称统一使用标准写法：`Binance`、`Gate`、`OKX`
-- 配置边界要尽早校验：端口、轮询周期、阈值、金额档位、交易所列表
-- 管理写接口只有 `POST /api/config` 和 `POST /api/alerts/reset`，必须经过 Bearer token 鉴权
+- 配置边界要尽早校验：端口、轮询周期、金额档位、交易所列表
+- 管理写接口只有 `POST /api/config`、`POST /api/alerts/benchmark` 和 `POST /api/alerts/reset`，必须经过 Bearer token 鉴权
 - 管理 token 不通过读取接口返回，前端只在当前浏览器标签页会话中保存
 - API 和配置层只处理规范化后的交易所名称，不依赖大小写约定
 - 前端展示历史数据时，不硬编码交易所 response key，而是读取 `/api/meta` 返回的 `supported_exchanges` 和 `history_keys`
@@ -39,7 +43,8 @@
 - 单个 C2C 轮次完成前不会启动下一轮；轮次内部有并发上限
 - Forex 超过配置的最大年龄后，`/readyz` 返回失败，C2C 价格继续采集，但机会告警停止
 - 交易所状态必须区分全成功、部分成功和全失败，不能用一个成功金额档位掩盖其余错误
-- 告警状态只能在通知成功后推进；数据库重置失败时不能先删除内存状态
+- 全局标定持久化到 `alert_benchmarks`，每次按 `min(当前标定, 当前 Forex)` 只向下收敛
+- 市场新低状态只能在通知成功后推进；数据库重置失败时不能先删除内存状态
 - 历史数据分三层存储：
   - `raw`：原始抓取数据
   - `hour`：小时聚合
@@ -50,6 +55,9 @@
 - 面向历史查询的复合索引只能通过追加 migration 发布，不能依赖已有环境重新执行旧 migration
 - 应用主日志统一输出 JSON 行，按 `event` 字段做查询
 - `/healthz` 只检查进程存活，`/readyz` 检查 Forex 数据是否可用于业务计算
+- 生产域名固定为 `c2c.agenticim.xyz`，Ingress 使用 `traefik` 和 `letsencrypt-prod`
+- 生产镜像必须使用完整 commit SHA；backend 使用 `Recreate`，避免部署窗口同时运行两套监控循环
+- 生产 secret 只存在 `/opt/c2c-monitor/secrets.env` 和 `c2c-monitor` namespace 的 Kubernetes Secret
 
 ## 为什么这样改
 
