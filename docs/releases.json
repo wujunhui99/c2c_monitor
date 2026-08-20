@@ -1,6 +1,26 @@
 {
   "releases": [
     {
+      "version": "v1.5.0",
+      "released_at": "2026-08-20",
+      "summary": "Replaced percentage alerts with a persistent, strictly decreasing Forex benchmark.",
+      "changes": [
+        "Initialized the global alert benchmark from USD/CNY and automatically lowered it whenever Forex moved down.",
+        "Added authenticated benchmark updates that can only move below both the current benchmark and current Forex rate.",
+        "Added the benchmark controls and chart marker to the frontend while preserving per-market new-low alerts after successful email delivery."
+      ]
+    },
+    {
+      "version": "v1.4.1",
+      "released_at": "2026-08-19",
+      "summary": "Added the production K3s deployment and explicit disabled-email mode.",
+      "changes": [
+        "Added MySQL, backend, frontend, Traefik Ingress, cert-manager TLS, immutable-image deployment, and rollout verification for c2c.agenticim.xyz.",
+        "Added an explicit notification.email.enabled setting so deployments without SMTP credentials do not repeatedly attempt failed email delivery.",
+        "Configured the production backend to run Gin in release mode."
+      ]
+    },
+    {
       "version": "v1.4.0",
       "released_at": "2026-08-13",
       "summary": "Hardened administrative access, scheduling, alert delivery, upstream handling, deployment, and frontend rendering.",

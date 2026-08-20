@@ -26,11 +26,10 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 	cfg := &config.Config{
 		App: config.AppConfig{Port: 8001},
 		Monitor: config.MonitorConfig{
-			C2CIntervalMinutes:    1,
-			ForexIntervalHours:    1,
-			AlertThresholdPercent: 0.1,
-			TargetAmounts:         []float64{30},
-			Exchanges:             []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
+			C2CIntervalMinutes: 1,
+			ForexIntervalHours: 1,
+			TargetAmounts:      []float64{30},
+			Exchanges:          []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
 		},
 		Database: config.DatabaseConfig{DSN: "integration-test"},
 	}
@@ -155,11 +154,10 @@ func TestHistoryContractMatchesMetaExchangeMetadata(t *testing.T) {
 	cfg := &config.Config{
 		App: config.AppConfig{Port: 8001},
 		Monitor: config.MonitorConfig{
-			C2CIntervalMinutes:    1,
-			ForexIntervalHours:    1,
-			AlertThresholdPercent: 0.1,
-			TargetAmounts:         []float64{30},
-			Exchanges:             []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
+			C2CIntervalMinutes: 1,
+			ForexIntervalHours: 1,
+			TargetAmounts:      []float64{30},
+			Exchanges:          []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
 		},
 		Database: config.DatabaseConfig{DSN: "integration-test"},
 	}
@@ -276,10 +274,11 @@ func (noopNotifier) Send(ctx context.Context, subject, body string) error {
 }
 
 type memoryRepository struct {
-	mu          sync.RWMutex
-	prices      []*domain.PricePoint
-	forexRates  []*domain.ForexRate
-	alertStates map[string]*domain.AlertState
+	mu             sync.RWMutex
+	prices         []*domain.PricePoint
+	forexRates     []*domain.ForexRate
+	alertStates    map[string]*domain.AlertState
+	alertBenchmark *domain.AlertBenchmark
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -378,6 +377,26 @@ func (r *memoryRepository) GetAlertStates(ctx context.Context) ([]*domain.AlertS
 	})
 
 	return states, nil
+}
+
+func (r *memoryRepository) UpsertAlertBenchmark(ctx context.Context, benchmark *domain.AlertBenchmark) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	copyBenchmark := *benchmark
+	r.alertBenchmark = &copyBenchmark
+	return nil
+}
+
+func (r *memoryRepository) GetAlertBenchmark(ctx context.Context, pair string) (*domain.AlertBenchmark, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.alertBenchmark == nil || r.alertBenchmark.Pair != pair {
+		return nil, nil
+	}
+	copyBenchmark := *r.alertBenchmark
+	return &copyBenchmark, nil
 }
 
 func (r *memoryRepository) filteredPrices(filter domain.PriceQueryFilter) []*domain.PricePoint {

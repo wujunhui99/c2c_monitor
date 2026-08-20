@@ -63,10 +63,11 @@
 - 必须 fail-open，最多降级为“告警没发出去”，而不是“主流程停掉”
 
 当前 SMTP 实现：
+- `notification.email.enabled=false` 时使用禁用 notifier，不建立 SMTP 连接
 - 连接、TLS、认证、写入和退出共享一个可取消的超时上下文
 - 465 端口使用隐式 TLS，其他端口要求服务端支持 STARTTLS
 - 拒绝 Subject、From 和收件人字段中的换行符
-- 邮件发送失败时不推进动态告警阈值，下一轮仍有机会重新通知
+- 邮件发送失败时不推进市场新低状态，下一轮仍有机会重新通知
 
 ## Failure Path 怎么测
 

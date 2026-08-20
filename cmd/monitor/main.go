@@ -62,6 +62,20 @@ func main() {
 		domain.ExchangeOKX:     exchange.NewOKXAdapter(),
 	}
 
+	var emailNotifier domain.INotifier
+	if cfg.Notification.Email.Enabled {
+		emailNotifier = notifier.NewSMTPNotifier(
+			cfg.Notification.Email.SMTPHost,
+			cfg.Notification.Email.SMTPPort,
+			cfg.Notification.Email.Username,
+			cfg.Notification.Email.Password,
+			cfg.Notification.Email.From,
+			cfg.Notification.Email.To,
+		)
+	} else {
+		emailNotifier = notifier.NewDisabledNotifier()
+	}
+
 	svc := service.NewMonitorService(
 		cfg.Monitor,
 		repo,
@@ -70,14 +84,7 @@ func main() {
 			forex.NewOpenERAdapter(),
 			forex.NewHexaRateAdapter(),
 		),
-		notifier.NewSMTPNotifier(
-			cfg.Notification.Email.SMTPHost,
-			cfg.Notification.Email.SMTPPort,
-			cfg.Notification.Email.Username,
-			cfg.Notification.Email.Password,
-			cfg.Notification.Email.From,
-			cfg.Notification.Email.To,
-		),
+		emailNotifier,
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

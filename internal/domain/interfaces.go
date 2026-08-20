@@ -85,6 +85,14 @@ type AlertState struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// AlertBenchmark stores the global C2C alert reference price.
+type AlertBenchmark struct {
+	Pair      string    `json:"pair"`
+	Price     float64   `json:"benchmark_price"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 func AlertStateKey(exchange, side string, amount float64) string {
 	return exchange + "-" + side + "-" + strconv.FormatFloat(amount, 'f', -1, 64)
 }
@@ -123,4 +131,6 @@ type IRepository interface {
 	UpsertAlertState(ctx context.Context, state *AlertState) error
 	DeleteAlertState(ctx context.Context, exchange, side string, amount float64) error
 	GetAlertStates(ctx context.Context) ([]*AlertState, error)
+	UpsertAlertBenchmark(ctx context.Context, benchmark *AlertBenchmark) error
+	GetAlertBenchmark(ctx context.Context, pair string) (*AlertBenchmark, error)
 }

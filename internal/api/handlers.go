@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"math"
 	"net/http"
 	"strconv"
@@ -174,6 +175,65 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 func (h *Handler) GetAlertStatus(c *gin.Context) {
 	states := h.svc.GetAlertStates()
 	c.JSON(http.StatusOK, gin.H{"data": states})
+}
+
+func (h *Handler) GetAlertBenchmark(c *gin.Context) {
+	benchmarkPrice, forexRate, err := h.svc.GetAlertBenchmark(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{
+		"benchmark_price": benchmarkPrice,
+		"forex_rate":      forexRate,
+	}})
+}
+
+type UpdateAlertBenchmarkRequest struct {
+	BenchmarkPrice *float64 `json:"benchmark_price"`
+}
+
+func (h *Handler) UpdateAlertBenchmark(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+	var req UpdateAlertBenchmarkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.BenchmarkPrice == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "benchmark_price is required"})
+		return
+	}
+
+	_, forexRate, err := h.svc.GetAlertBenchmark(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+	if math.IsNaN(*req.BenchmarkPrice) || math.IsInf(*req.BenchmarkPrice, 0) || *req.BenchmarkPrice <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "benchmark_price must be greater than 0"})
+		return
+	}
+	if *req.BenchmarkPrice >= forexRate {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "benchmark_price must be lower than the current Forex rate"})
+		return
+	}
+
+	benchmarkPrice, forexRate, err := h.svc.UpdateAlertBenchmark(c.Request.Context(), *req.BenchmarkPrice)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidAlertBenchmark) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update alert benchmark"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": gin.H{
+		"benchmark_price": benchmarkPrice,
+		"forex_rate":      forexRate,
+	}})
 }
 
 type ResetAlertRequest struct {

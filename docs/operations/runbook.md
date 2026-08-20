@@ -81,7 +81,13 @@
 - 如果改了 workflow：
 
   ```bash
-  ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path); puts "ok #{path}" }' .github/workflows/*.yml .github/dependabot.yml
+  ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path); puts "ok #{path}" }' .github/workflows/*.yml .github/dependabot.yml deploy/k8s/*.yaml
+  ```
+
+- 如果改了 Kubernetes 部署：
+
+  ```bash
+  bash scripts/verify-k8s.sh
   ```
 
 ## 运行时接口
@@ -92,6 +98,8 @@
 - `POST /api/config`
 - `GET /api/meta`
 - `GET /api/alerts/status`
+- `GET /api/alerts/benchmark`
+- `POST /api/alerts/benchmark`
 - `POST /api/alerts/reset`
 - `GET /api/status`
 - `GET /healthz`
@@ -99,7 +107,7 @@
 
 ### 管理写接口
 
-`POST /api/config` 和 `POST /api/alerts/reset` 都要求：
+`POST /api/config`、`POST /api/alerts/benchmark` 和 `POST /api/alerts/reset` 都要求：
 
 ```text
 Authorization: Bearer <app.admin_token>
@@ -115,7 +123,6 @@ curl -fsS \
     "c2c_interval_minutes": 6,
     "forex_interval_hours": 1,
     "forex_max_age_hours": 6,
-    "alert_threshold_percent": 0.1,
     "target_amounts": [0, 30, 50, 200, 500, 1000],
     "exchanges": ["Binance", "Gate", "OKX"]
   }' \
@@ -123,6 +130,24 @@ curl -fsS \
 ```
 
 运行时配置只更新内存，不修改 `config.yaml`。C2C 和 Forex 调度器会立即按新周期重新计时。
+
+查看当前告警标定和 Forex：
+
+```bash
+curl -fsS http://127.0.0.1:8001/api/alerts/benchmark
+```
+
+只允许把标定下调到同时低于当前标定和当前 Forex 的值：
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $C2C_APP_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"benchmark_price": 7.05}' \
+  http://127.0.0.1:8001/api/alerts/benchmark
+```
+
+标定值持久化在 MySQL `alert_benchmarks` 表中，不属于运行时配置。
 
 ### 健康检查
 
@@ -139,8 +164,43 @@ curl -fsS \
 - 镜像发布前必须通过 doctor、race、vet 和前端 JavaScript 语法检查。
 - 后端与前端镜像都发布 `latest` 和完整 40 位 commit SHA 标签，并生成 SBOM 与 provenance。
 - 生产部署只接受完整 commit SHA 标签，不使用可变 `latest` 标签。
-- 部署 workflow 会从该 SHA checkout Compose/Nginx 资产，确保它们与镜像来自同一提交。
+- 部署 workflow 会从该 SHA checkout K3s manifests 和部署脚本，确保它们与镜像来自同一提交。
 - 手动部署 workflow 需要配置 `production` environment、SSH/GHCR secrets 和部署变量。
+
+### 生产部署
+
+生产入口：
+
+```text
+https://c2c.agenticim.xyz/
+```
+
+生产运行在现有单节点 K3s 集群的独立 `c2c-monitor` namespace。通过 GitHub Actions
+`Deploy To K3s` workflow 手动输入已经发布的完整 commit SHA。
+
+首次部署会在服务器创建：
+
+```text
+/opt/c2c-monitor/secrets.env
+```
+
+该文件权限为 `0600`，包含数据库、管理员和 SMTP 配置；不要复制到仓库或 Actions 日志。
+当仓库没有配置 `C2C_SMTP_*` secrets 时，页面和采集仍会启动，但
+`notification.email.enabled=false`，邮件告警不可用且不会反复尝试连接 SMTP。
+
+只读检查：
+
+```bash
+kubectl -n c2c-monitor get pod,svc,ingress,certificate,pvc
+kubectl -n c2c-monitor logs deployment/backend --tail=100
+kubectl -n c2c-monitor rollout status deployment/backend
+curl -fsS https://c2c.agenticim.xyz/healthz
+curl -fsS https://c2c.agenticim.xyz/readyz
+curl -fsS https://c2c.agenticim.xyz/api/meta
+```
+
+回滚时重新运行部署 workflow，并输入先前已经发布的完整 commit SHA。数据库 PVC 不会随
+Deployment 镜像回滚而删除。
 
 ### 后端无法启动
 
@@ -214,7 +274,7 @@ curl -fsS \
 - 主源和备用源都失败时，只会使用仍在最大年龄内的数据库缓存
 - 缓存过期后 `/readyz` 返回 `503`，C2C 历史价格继续采集，但暂停机会告警
 
-### Compose 部署检查
+### Compose 部署检查（非生产）
 
 ```bash
 cd deploy/compose

@@ -1,10 +1,10 @@
-name: Deploy To Ubuntu
+name: Deploy To K3s
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Full 40-character commit SHA image tag to deploy
+        description: Published full 40-character commit SHA image tag to deploy
         required: true
         type: string
 
@@ -19,7 +19,9 @@ jobs:
   deploy:
     name: Deploy via SSH
     runs-on: ubuntu-latest
-    environment: production
+    environment:
+      name: production
+      url: https://c2c.agenticim.xyz/
     steps:
       - name: Validate image tag
         env:
@@ -35,80 +37,52 @@ jobs:
         with:
           ref: ${{ inputs.image_tag }}
 
-      - name: Upload compose assets
+      - name: Upload Kubernetes assets
         uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ vars.DEPLOY_PORT != '' && vars.DEPLOY_PORT || '22' }}
-          source: "deploy/compose/docker-compose.yml,deploy/compose/frontend-config.js,deploy/compose/nginx.conf,deploy/compose/config.yaml.example,deploy/compose/.env.example"
-          target: "/tmp/c2c-monitor-deploy-compose"
-          strip_components: 2
+          source: "deploy/k8s,scripts/deploy-k3s.sh"
+          target: "/tmp/c2c-monitor-deploy"
 
-      - name: Deploy to server
+      - name: Deploy to K3s
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          SMTP_HOST: ${{ secrets.C2C_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.C2C_SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.C2C_SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.C2C_SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.C2C_SMTP_FROM }}
+          SMTP_TO: ${{ vars.C2C_SMTP_TO }}
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ vars.DEPLOY_PORT != '' && vars.DEPLOY_PORT || '22' }}
           script_stop: true
-          envs: GHCR_USERNAME,GHCR_TOKEN,IMAGE_TAG
+          envs: GHCR_USERNAME,GHCR_TOKEN,IMAGE_TAG,SMTP_HOST,SMTP_PORT,SMTP_USERNAME,SMTP_PASSWORD,SMTP_FROM,SMTP_TO
           command_timeout: 20m
           script: |
             set -euo pipefail
 
-            APP_DIR="$HOME/c2c_monitor"
-            COMPOSE_DIR="$APP_DIR/deploy/compose"
-            TMP_COMPOSE_DIR="/tmp/c2c-monitor-deploy-compose"
+            TMP_DIR="/tmp/c2c-monitor-deploy"
+            INSTALL_DIR="/opt/c2c-monitor/repo"
 
-            mkdir -p "$COMPOSE_DIR"
-            cp "$TMP_COMPOSE_DIR/docker-compose.yml" "$COMPOSE_DIR/docker-compose.yml"
-            cp "$TMP_COMPOSE_DIR/frontend-config.js" "$COMPOSE_DIR/frontend-config.js"
-            cp "$TMP_COMPOSE_DIR/nginx.conf" "$COMPOSE_DIR/nginx.conf"
-            cp "$TMP_COMPOSE_DIR/config.yaml.example" "$COMPOSE_DIR/config.yaml.example"
-            cp "$TMP_COMPOSE_DIR/.env.example" "$COMPOSE_DIR/.env.example"
-            rm -rf "$TMP_COMPOSE_DIR"
+            install -d -m 0755 "$INSTALL_DIR/deploy" "$INSTALL_DIR/scripts"
+            rm -rf "$INSTALL_DIR/deploy/k8s"
+            cp -R "$TMP_DIR/deploy/k8s" "$INSTALL_DIR/deploy/k8s"
+            cp "$TMP_DIR/scripts/deploy-k3s.sh" "$INSTALL_DIR/scripts/deploy-k3s.sh"
+            chmod 0755 "$INSTALL_DIR/scripts/deploy-k3s.sh"
+            rm -rf "$TMP_DIR"
 
-            if [ ! -f "$COMPOSE_DIR/config.yaml" ]; then
-              echo "Missing $COMPOSE_DIR/config.yaml. Create it from config.yaml.example." >&2
-              exit 1
-            fi
-            if [ ! -f "$COMPOSE_DIR/.env" ]; then
-              echo "Missing $COMPOSE_DIR/.env. Create it from .env.example." >&2
-              exit 1
-            fi
-
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
-
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE="docker compose"
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE="docker-compose"
-            else
-              echo "docker compose is not installed on server" >&2
-              exit 1
-            fi
-
-            cd "$COMPOSE_DIR"
-            export IMAGE_TAG
-            $COMPOSE config --quiet
-            $COMPOSE pull
-            $COMPOSE up -d --remove-orphans
-            $COMPOSE ps
-
-            for attempt in $(seq 1 30); do
-              if curl -fsS http://127.0.0.1:8080/healthz >/dev/null \
-                && curl -fsS http://127.0.0.1:8080/readyz >/dev/null; then
-                exit 0
-              fi
-              sleep 2
-            done
-
-            $COMPOSE logs --tail=100 backend frontend
-            exit 1
+            cd "$INSTALL_DIR"
+            KUBECTL=kubectl \
+              K8S_DIR="$INSTALL_DIR/deploy/k8s" \
+              SECRETS_FILE="/opt/c2c-monitor/secrets.env" \
+              DOMAIN="c2c.agenticim.xyz" \
+              bash "$INSTALL_DIR/scripts/deploy-k3s.sh"

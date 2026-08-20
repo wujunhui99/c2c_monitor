@@ -21,12 +21,11 @@ type AppConfig struct {
 }
 
 type MonitorConfig struct {
-	C2CIntervalMinutes    int       `mapstructure:"c2c_interval_minutes" json:"c2c_interval_minutes"`
-	ForexIntervalHours    int       `mapstructure:"forex_interval_hours" json:"forex_interval_hours"`
-	ForexMaxAgeHours      int       `mapstructure:"forex_max_age_hours" json:"forex_max_age_hours"`
-	AlertThresholdPercent float64   `mapstructure:"alert_threshold_percent" json:"alert_threshold_percent"`
-	TargetAmounts         []float64 `mapstructure:"target_amounts" json:"target_amounts"`
-	Exchanges             []string  `mapstructure:"exchanges" json:"exchanges"`
+	C2CIntervalMinutes int       `mapstructure:"c2c_interval_minutes" json:"c2c_interval_minutes"`
+	ForexIntervalHours int       `mapstructure:"forex_interval_hours" json:"forex_interval_hours"`
+	ForexMaxAgeHours   int       `mapstructure:"forex_max_age_hours" json:"forex_max_age_hours"`
+	TargetAmounts      []float64 `mapstructure:"target_amounts" json:"target_amounts"`
+	Exchanges          []string  `mapstructure:"exchanges" json:"exchanges"`
 }
 
 type DatabaseConfig struct {
@@ -38,6 +37,7 @@ type NotificationConfig struct {
 }
 
 type EmailConfig struct {
+	Enabled  bool     `mapstructure:"enabled"`
 	SMTPHost string   `mapstructure:"smtp_host"`
 	SMTPPort int      `mapstructure:"smtp_port"`
 	Username string   `mapstructure:"username"`
@@ -57,9 +57,9 @@ func LoadConfig(path string) (*Config, error) {
 	v.SetDefault("monitor.c2c_interval_minutes", 3)
 	v.SetDefault("monitor.forex_interval_hours", 1)
 	v.SetDefault("monitor.forex_max_age_hours", 6)
-	v.SetDefault("monitor.alert_threshold_percent", 0.1)
 	v.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
 	v.SetDefault("monitor.exchanges", []string{"Binance", "Gate", "OKX"})
+	v.SetDefault("notification.email.enabled", true)
 
 	// Environment variable support
 	v.SetEnvPrefix("C2C")
@@ -68,6 +68,7 @@ func LoadConfig(path string) (*Config, error) {
 	for _, key := range []string{
 		"app.admin_token",
 		"database.dsn",
+		"notification.email.enabled",
 		"notification.email.smtp_host",
 		"notification.email.smtp_port",
 		"notification.email.username",

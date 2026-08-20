@@ -157,6 +157,18 @@ func (AlertStateDAO) TableName() string {
 	return "alert_states"
 }
 
+// AlertBenchmarkDAO stores the global alert benchmark across restarts.
+type AlertBenchmarkDAO struct {
+	Pair      string  `gorm:"primaryKey;type:varchar(10)"`
+	Price     float64 `gorm:"type:decimal(18,8)"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (AlertBenchmarkDAO) TableName() string {
+	return "alert_benchmarks"
+}
+
 // MySQLRepository implements domain.IRepository
 type MySQLRepository struct {
 	db *gorm.DB
@@ -177,6 +189,7 @@ func schemaModels() []any {
 		&ForexRateDailyDAO{},
 		&MerchantDAO{},
 		&AlertStateDAO{},
+		&AlertBenchmarkDAO{},
 	}
 }
 
@@ -648,4 +661,34 @@ func (r *MySQLRepository) GetAlertStates(ctx context.Context) ([]*domain.AlertSt
 	}
 
 	return results, nil
+}
+
+func (r *MySQLRepository) UpsertAlertBenchmark(ctx context.Context, benchmark *domain.AlertBenchmark) error {
+	dao := &AlertBenchmarkDAO{
+		Pair:  benchmark.Pair,
+		Price: benchmark.Price,
+	}
+
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "pair"}},
+		DoUpdates: clause.AssignmentColumns([]string{"price", "updated_at"}),
+	}).Create(dao).Error
+}
+
+func (r *MySQLRepository) GetAlertBenchmark(ctx context.Context, pair string) (*domain.AlertBenchmark, error) {
+	var dao AlertBenchmarkDAO
+	err := r.db.WithContext(ctx).Where("pair = ?", pair).First(&dao).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.AlertBenchmark{
+		Pair:      dao.Pair,
+		Price:     dao.Price,
+		CreatedAt: dao.CreatedAt,
+		UpdatedAt: dao.UpdatedAt,
+	}, nil
 }

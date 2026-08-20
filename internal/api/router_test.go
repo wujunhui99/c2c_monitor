@@ -93,6 +93,71 @@ func TestResetAlertAcceptsZeroAmount(t *testing.T) {
 	}
 }
 
+func TestAlertBenchmarkRoutesOnlyAllowLowerPrices(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc, repo := newTestService()
+	router := SetupRouter(svc, testAPIConfig())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		svc.Start(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out stopping monitor service")
+		}
+	}()
+
+	var benchmarkRecorder *httptest.ResponseRecorder
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		benchmarkRecorder = httptest.NewRecorder()
+		router.ServeHTTP(benchmarkRecorder, httptest.NewRequest(http.MethodGet, "/api/alerts/benchmark", nil))
+		if benchmarkRecorder.Code == http.StatusOK {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if benchmarkRecorder == nil || benchmarkRecorder.Code != http.StatusOK {
+		t.Fatalf("expected initialized benchmark status 200, got %d: %s", benchmarkRecorder.Code, benchmarkRecorder.Body.String())
+	}
+
+	update := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/alerts/benchmark", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+testAdminToken)
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	unauthorizedReq := httptest.NewRequest(http.MethodPost, "/api/alerts/benchmark", bytes.NewBufferString(`{"benchmark_price":7.1}`))
+	unauthorizedReq.Header.Set("Content-Type", "application/json")
+	unauthorizedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(unauthorizedRecorder, unauthorizedReq)
+	if unauthorizedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected missing admin token to return 401, got %d: %s", unauthorizedRecorder.Code, unauthorizedRecorder.Body.String())
+	}
+
+	if recorder := update(`{"benchmark_price":7.2}`); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected Forex-equal benchmark to be rejected, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := update(`{"benchmark_price":7.1}`); recorder.Code != http.StatusOK {
+		t.Fatalf("expected lower benchmark to be accepted, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.1 {
+		t.Fatalf("expected persisted benchmark 7.1, got %#v", repo.alertBenchmark)
+	}
+	if recorder := update(`{"benchmark_price":7.15}`); recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected benchmark increase to be rejected, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestCORSAllowsOnlyConfiguredOrigins(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc, _ := newTestService()
@@ -133,12 +198,11 @@ func newTestService() (*service.MonitorService, *apiTestRepository) {
 	repo := &apiTestRepository{}
 	svc := service.NewMonitorService(
 		config.MonitorConfig{
-			C2CIntervalMinutes:    3,
-			ForexIntervalHours:    1,
-			ForexMaxAgeHours:      6,
-			AlertThresholdPercent: 0.1,
-			TargetAmounts:         []float64{0, 30},
-			Exchanges:             []string{domain.ExchangeGate},
+			C2CIntervalMinutes: 3,
+			ForexIntervalHours: 1,
+			ForexMaxAgeHours:   6,
+			TargetAmounts:      []float64{0, 30},
+			Exchanges:          []string{domain.ExchangeGate},
 		},
 		repo,
 		map[string]domain.IExchange{},
@@ -164,6 +228,7 @@ type apiTestRepository struct {
 	deletedExchange string
 	deletedSide     string
 	deletedAmount   float64
+	alertBenchmark  *domain.AlertBenchmark
 }
 
 func (r *apiTestRepository) SavePricePoints(ctx context.Context, points []*domain.PricePoint) error {
@@ -211,4 +276,18 @@ func (r *apiTestRepository) DeleteAlertState(ctx context.Context, exchange, side
 
 func (r *apiTestRepository) GetAlertStates(ctx context.Context) ([]*domain.AlertState, error) {
 	return nil, nil
+}
+
+func (r *apiTestRepository) UpsertAlertBenchmark(ctx context.Context, benchmark *domain.AlertBenchmark) error {
+	copyBenchmark := *benchmark
+	r.alertBenchmark = &copyBenchmark
+	return nil
+}
+
+func (r *apiTestRepository) GetAlertBenchmark(ctx context.Context, pair string) (*domain.AlertBenchmark, error) {
+	if r.alertBenchmark == nil {
+		return nil, nil
+	}
+	copyBenchmark := *r.alertBenchmark
+	return &copyBenchmark, nil
 }
