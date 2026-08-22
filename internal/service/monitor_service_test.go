@@ -206,30 +206,30 @@ func TestAlertBenchmarkDefaultsToForexAndOnlyMovesLower(t *testing.T) {
 	)
 
 	svc.setLastForex(7.2, time.Now())
-	benchmark, forexRate, err := svc.GetAlertBenchmark(context.Background())
+	status, err := svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetAlertBenchmark returned error: %v", err)
 	}
-	if benchmark != 7.2 || forexRate != 7.2 {
-		t.Fatalf("expected initial benchmark and Forex rate 7.2, got benchmark=%f forex=%f", benchmark, forexRate)
+	if status.BenchmarkPrice != 7.2 || status.ForexRate != 7.2 {
+		t.Fatalf("expected initial benchmark and Forex rate 7.2, got %#v", status)
 	}
 
 	svc.setLastForex(7.3, time.Now())
-	benchmark, forexRate, err = svc.GetAlertBenchmark(context.Background())
+	status, err = svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetAlertBenchmark after Forex increase returned error: %v", err)
 	}
-	if benchmark != 7.2 || forexRate != 7.3 {
-		t.Fatalf("expected benchmark to stay 7.2 when Forex rises to 7.3, got benchmark=%f forex=%f", benchmark, forexRate)
+	if status.BenchmarkPrice != 7.2 || status.ForexRate != 7.3 {
+		t.Fatalf("expected benchmark to stay 7.2 when Forex rises to 7.3, got %#v", status)
 	}
 
 	svc.setLastForex(7.05, time.Now())
-	benchmark, forexRate, err = svc.GetAlertBenchmark(context.Background())
+	status, err = svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetAlertBenchmark after Forex decrease returned error: %v", err)
 	}
-	if benchmark != 7.05 || forexRate != 7.05 {
-		t.Fatalf("expected benchmark to fall with Forex to 7.05, got benchmark=%f forex=%f", benchmark, forexRate)
+	if status.BenchmarkPrice != 7.05 || status.ForexRate != 7.05 {
+		t.Fatalf("expected benchmark to fall with Forex to 7.05, got %#v", status)
 	}
 	if repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.05 {
 		t.Fatalf("expected lowered benchmark to be persisted, got %#v", repo.alertBenchmark)
@@ -247,26 +247,26 @@ func TestUpdateAlertBenchmarkRejectsAnyIncrease(t *testing.T) {
 	)
 	svc.setLastForex(7.2, time.Now())
 
-	if _, _, err := svc.GetAlertBenchmark(context.Background()); err != nil {
+	if _, err := svc.GetAlertBenchmark(context.Background(), nil); err != nil {
 		t.Fatalf("initialize benchmark: %v", err)
 	}
-	benchmark, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.1)
+	status, err := svc.UpdateAlertBenchmark(context.Background(), 7.1, nil)
 	if err != nil {
 		t.Fatalf("expected lower benchmark to be accepted: %v", err)
 	}
-	if benchmark != 7.1 {
-		t.Fatalf("expected benchmark 7.1, got %f", benchmark)
+	if status.BenchmarkPrice != 7.1 {
+		t.Fatalf("expected benchmark 7.1, got %#v", status)
 	}
 
-	if _, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.15); err == nil {
+	if _, err := svc.UpdateAlertBenchmark(context.Background(), 7.15, nil); err == nil {
 		t.Fatal("expected benchmark increase to be rejected")
 	}
-	benchmark, _, err = svc.GetAlertBenchmark(context.Background())
+	status, err = svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("read benchmark after rejected increase: %v", err)
 	}
-	if benchmark != 7.1 {
-		t.Fatalf("expected rejected increase to leave benchmark at 7.1, got %f", benchmark)
+	if status.BenchmarkPrice != 7.1 {
+		t.Fatalf("expected rejected increase to leave benchmark at 7.1, got %#v", status)
 	}
 }
 
@@ -281,24 +281,76 @@ func TestAlertBenchmarkRetriesPersistenceAfterFailure(t *testing.T) {
 	)
 	svc.setLastForex(7.2, time.Now())
 
-	benchmark, _, err := svc.GetAlertBenchmark(context.Background())
+	status, err := svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetAlertBenchmark returned error: %v", err)
 	}
-	if benchmark != 7.2 {
-		t.Fatalf("expected runtime benchmark 7.2 despite persistence failure, got %f", benchmark)
+	if status.BenchmarkPrice != 7.2 {
+		t.Fatalf("expected runtime benchmark 7.2 despite persistence failure, got %#v", status)
 	}
 	if repo.alertBenchmark != nil {
 		t.Fatalf("did not expect failed persistence to store a benchmark")
 	}
 
 	repo.alertBenchmarkErr = nil
-	benchmark, _, err = svc.GetAlertBenchmark(context.Background())
+	status, err = svc.GetAlertBenchmark(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("GetAlertBenchmark retry returned error: %v", err)
 	}
-	if benchmark != 7.2 || repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.2 {
-		t.Fatalf("expected persistence retry to store benchmark 7.2, got benchmark=%f persisted=%#v", benchmark, repo.alertBenchmark)
+	if status.BenchmarkPrice != 7.2 || repo.alertBenchmark == nil || repo.alertBenchmark.Price != 7.2 {
+		t.Fatalf("expected persistence retry to store benchmark 7.2, got status=%#v persisted=%#v", status, repo.alertBenchmark)
+	}
+}
+
+func TestAmountBenchmarkAppliesOnlyToConfiguredTier(t *testing.T) {
+	repo := &stubRepository{}
+	notifier := &recordingNotifier{}
+	cfg := testMonitorConfig()
+	cfg.TargetAmounts = []float64{0, 30, 500, 1000}
+	svc := NewMonitorService(
+		cfg,
+		repo,
+		nil,
+		sourceAwareForex{rate: 7.2, source: "test"},
+		notifier,
+	)
+	svc.setLastForex(7.2, time.Now())
+
+	amount1000 := 1000.0
+	status, err := svc.UpdateAlertBenchmark(context.Background(), 6.70, &amount1000)
+	if err != nil {
+		t.Fatalf("UpdateAlertBenchmark for 1000 tier returned error: %v", err)
+	}
+	if status.BenchmarkPrice != 6.70 || status.GlobalBenchmarkPrice != 7.2 ||
+		status.OverridePrice == nil || *status.OverridePrice != 6.70 {
+		t.Fatalf("unexpected 1000 tier benchmark status: %#v", status)
+	}
+
+	amount500 := 500.0
+	status, err = svc.GetAlertBenchmark(context.Background(), &amount500)
+	if err != nil {
+		t.Fatalf("GetAlertBenchmark for 500 tier returned error: %v", err)
+	}
+	if status.BenchmarkPrice != 7.2 || status.OverridePrice != nil {
+		t.Fatalf("expected 500 tier to inherit global benchmark, got %#v", status)
+	}
+
+	svc.checkAlert(context.Background(), testPricePoint(6.71, amount1000))
+	if notifier.calls != 0 {
+		t.Fatalf("expected 1000 tier price above 6.70 not to alert, got %d calls", notifier.calls)
+	}
+	svc.checkAlert(context.Background(), testPricePoint(6.69, amount1000))
+	if notifier.calls != 1 {
+		t.Fatalf("expected 1000 tier price below 6.70 to alert, got %d calls", notifier.calls)
+	}
+	svc.checkAlert(context.Background(), testPricePoint(6.71, amount500))
+	if notifier.calls != 2 {
+		t.Fatalf("expected 500 tier to retain its independent global benchmark, got %d calls", notifier.calls)
+	}
+
+	unknownAmount := 999.0
+	if _, err := svc.UpdateAlertBenchmark(context.Background(), 6.60, &unknownAmount); err == nil {
+		t.Fatal("expected unconfigured amount tier to be rejected")
 	}
 }
 
@@ -313,7 +365,7 @@ func TestCheckAlertUsesBenchmarkThenTracksSuccessfulNewLows(t *testing.T) {
 		notifier,
 	)
 	svc.setLastForex(7.2, time.Now())
-	if _, _, err := svc.UpdateAlertBenchmark(context.Background(), 7.1); err != nil {
+	if _, err := svc.UpdateAlertBenchmark(context.Background(), 7.1, nil); err != nil {
 		t.Fatalf("UpdateAlertBenchmark returned error: %v", err)
 	}
 
@@ -644,6 +696,7 @@ type stubRepository struct {
 	savedForex           *domain.ForexRate
 	savedAlert           *domain.AlertState
 	alertBenchmark       *domain.AlertBenchmark
+	benchmarkOverrides   map[float64]*domain.AlertBenchmarkOverride
 	alertBenchmarkErr    error
 	deleteAlertErr       error
 	savedPriceBatches    int64
@@ -722,4 +775,25 @@ func (r *stubRepository) GetAlertBenchmark(ctx context.Context, pair string) (*d
 	}
 	copyBenchmark := *r.alertBenchmark
 	return &copyBenchmark, nil
+}
+
+func (r *stubRepository) UpsertAlertBenchmarkOverride(ctx context.Context, override *domain.AlertBenchmarkOverride) error {
+	if r.benchmarkOverrides == nil {
+		r.benchmarkOverrides = make(map[float64]*domain.AlertBenchmarkOverride)
+	}
+	copyOverride := *override
+	r.benchmarkOverrides[override.TargetAmount] = &copyOverride
+	return nil
+}
+
+func (r *stubRepository) GetAlertBenchmarkOverrides(ctx context.Context, pair string) ([]*domain.AlertBenchmarkOverride, error) {
+	results := make([]*domain.AlertBenchmarkOverride, 0, len(r.benchmarkOverrides))
+	for _, override := range r.benchmarkOverrides {
+		if override.Pair != pair {
+			continue
+		}
+		copyOverride := *override
+		results = append(results, &copyOverride)
+	}
+	return results, nil
 }

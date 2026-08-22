@@ -1,6 +1,6 @@
 # C2C Monitor
 
-`c2c_monitor` 用来持续抓取 `USDT/CNY` C2C 价格、对照 `USD/CNY` 外汇参考价维护只降不升的告警标定价，并在 C2C 价格创新低时触发邮件告警，同时提供历史走势 API 给前端展示。
+`c2c_monitor` 用来持续抓取 `USDT/CNY` C2C 价格、按金额档位维护只降不升的告警标定价，并在 C2C 价格创新低时触发邮件告警，同时提供历史走势 API 给前端展示。
 
 ## Quick Start
 

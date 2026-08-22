@@ -31,12 +31,15 @@
 - 每次使用标定价前执行 `benchmark = min(benchmark, current_forex)`：
   - Forex 上涨时标定价不变
   - Forex 下跌时标定价自动下调并持久化
+- 每个 `target_amount` 可单独保存一个更低的档位标定价
+- 未设置覆盖的档位继承全局默认标定；已设置档位使用 `min(global_benchmark, amount_override)`
 - 前端可通过 `POST /api/alerts/benchmark` 手动下调标定价：
   - 新值必须大于 `0`
   - 新值必须严格低于当前 Forex
-  - 新值必须严格低于当前标定价，不能手动抬高
+  - 新值必须严格低于所选档位当前有效标定价，不能手动抬高
+  - `target_amount` 为空时修改全局默认标定，否则只修改指定金额档位
 - 每个交易所、方向和金额档位独立维护最近一次成功告警价格
-- 实际比较值为 `min(global_benchmark, last_successful_alert_price)`
+- 实际比较值为 `min(amount_benchmark, last_successful_alert_price)`
 - 当前 C2C 价格严格低于实际比较值时发送邮件
 - 只有 SMTP 发送成功后，才把该市场的最近告警价格推进到当前 C2C 价格
 - SMTP 失败时市场新低状态不推进，后续轮次仍可重试
@@ -62,9 +65,9 @@
 - `GET /api/meta` 返回当前服务版本以及前端渲染所需的交易所元数据
 - `GET /api/changelog` 返回版本变更记录
 - `POST /api/config` 更新运行中配置，需要 `Authorization: Bearer <admin_token>`
-- `GET /api/alerts/benchmark` 返回当前标定价和当前 Forex
-- `POST /api/alerts/benchmark` 持久化一个更低的全局标定价，需要管理员 Bearer token
-- `POST /api/alerts/reset` 清除指定市场的最近告警价格，使其重新使用全局标定价，同样需要管理员 Bearer token
+- `GET /api/alerts/benchmark` 返回全局默认标定；增加 `?amount=<target_amount>` 后返回对应档位的有效标定
+- `POST /api/alerts/benchmark` 持久化一个更低的默认或档位标定价，需要管理员 Bearer token
+- `POST /api/alerts/reset` 清除指定市场的最近告警价格，使其重新使用对应档位标定，同样需要管理员 Bearer token
 - `POST /api/config` 只影响内存态且不回写 `config.yaml`；告警标定价单独持久化到数据库
 - 前端只把管理员 token 保存在当前标签页的 `sessionStorage`，关闭标签页后自动清除
 

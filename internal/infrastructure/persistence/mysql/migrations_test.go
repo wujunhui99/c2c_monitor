@@ -97,6 +97,37 @@ func TestAlertBenchmarkPersistence(t *testing.T) {
 	if benchmark == nil || benchmark.Price != 7.05 {
 		t.Fatalf("expected updated benchmark 7.05, got %#v", benchmark)
 	}
+
+	if err := repo.UpsertAlertBenchmarkOverride(ctx, &domain.AlertBenchmarkOverride{
+		Pair:         "USDCNY",
+		TargetAmount: 1000,
+		Price:        6.70,
+	}); err != nil {
+		t.Fatalf("UpsertAlertBenchmarkOverride returned error: %v", err)
+	}
+
+	overrides, err := repo.GetAlertBenchmarkOverrides(ctx, "USDCNY")
+	if err != nil {
+		t.Fatalf("GetAlertBenchmarkOverrides returned error: %v", err)
+	}
+	if len(overrides) != 1 || overrides[0].TargetAmount != 1000 || overrides[0].Price != 6.70 {
+		t.Fatalf("expected 1000 CNY override at 6.70, got %#v", overrides)
+	}
+
+	if err := repo.UpsertAlertBenchmarkOverride(ctx, &domain.AlertBenchmarkOverride{
+		Pair:         "USDCNY",
+		TargetAmount: 1000,
+		Price:        6.66,
+	}); err != nil {
+		t.Fatalf("second UpsertAlertBenchmarkOverride returned error: %v", err)
+	}
+	overrides, err = repo.GetAlertBenchmarkOverrides(ctx, "USDCNY")
+	if err != nil {
+		t.Fatalf("second GetAlertBenchmarkOverrides returned error: %v", err)
+	}
+	if len(overrides) != 1 || overrides[0].Price != 6.66 {
+		t.Fatalf("expected updated 1000 CNY override at 6.66, got %#v", overrides)
+	}
 }
 
 func openMigrationTestDB(t *testing.T) *gorm.DB {

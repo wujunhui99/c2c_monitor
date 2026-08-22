@@ -56,7 +56,7 @@
             </div>
 
             <div class="benchmark-summary" aria-live="polite">
-                <span>Alert Benchmark</span>
+                <span id="dashboard-benchmark-label">Alert Benchmark</span>
                 <strong id="dashboard-benchmark">--</strong>
             </div>
             
@@ -114,13 +114,23 @@
             </div>
 
             <h3>Alert Benchmark</h3>
+            <div class="form-group">
+                <label for="alert-benchmark-scope">Benchmark Scope</label>
+                <select id="alert-benchmark-scope">
+                    <option value="global">Default for unconfigured tiers</option>
+                </select>
+            </div>
             <dl class="benchmark-readout">
                 <div>
                     <dt>Current Forex</dt>
                     <dd id="current-forex-rate">--</dd>
                 </div>
                 <div>
-                    <dt>Current Benchmark</dt>
+                    <dt>Default Benchmark</dt>
+                    <dd id="global-alert-benchmark">--</dd>
+                </div>
+                <div>
+                    <dt>Effective Benchmark</dt>
                     <dd id="current-alert-benchmark">--</dd>
                 </div>
             </dl>

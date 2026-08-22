@@ -93,6 +93,24 @@ type AlertBenchmark struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// AlertBenchmarkOverride stores an amount-tier-specific alert reference price.
+type AlertBenchmarkOverride struct {
+	Pair         string    `json:"pair"`
+	TargetAmount float64   `json:"target_amount"`
+	Price        float64   `json:"benchmark_price"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// AlertBenchmarkStatus is the resolved benchmark for a global or amount-tier scope.
+type AlertBenchmarkStatus struct {
+	BenchmarkPrice       float64  `json:"benchmark_price"`
+	GlobalBenchmarkPrice float64  `json:"global_benchmark_price"`
+	ForexRate            float64  `json:"forex_rate"`
+	TargetAmount         *float64 `json:"target_amount"`
+	OverridePrice        *float64 `json:"override_price"`
+}
+
 func AlertStateKey(exchange, side string, amount float64) string {
 	return exchange + "-" + side + "-" + strconv.FormatFloat(amount, 'f', -1, 64)
 }
@@ -133,4 +151,6 @@ type IRepository interface {
 	GetAlertStates(ctx context.Context) ([]*AlertState, error)
 	UpsertAlertBenchmark(ctx context.Context, benchmark *AlertBenchmark) error
 	GetAlertBenchmark(ctx context.Context, pair string) (*AlertBenchmark, error)
+	UpsertAlertBenchmarkOverride(ctx context.Context, override *AlertBenchmarkOverride) error
+	GetAlertBenchmarkOverrides(ctx context.Context, pair string) ([]*AlertBenchmarkOverride, error)
 }

@@ -314,6 +314,12 @@ select {
     box-sizing: border-box;
 }
 
+.settings-panel .form-group select {
+    width: 100%;
+    min-height: 36px;
+    box-sizing: border-box;
+}
+
 .benchmark-readout {
     margin: 0 0 18px;
     border-top: 1px solid var(--border-color);

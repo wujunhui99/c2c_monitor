@@ -135,19 +135,22 @@ curl -fsS \
 
 ```bash
 curl -fsS http://127.0.0.1:8001/api/alerts/benchmark
+curl -fsS 'http://127.0.0.1:8001/api/alerts/benchmark?amount=1000'
 ```
 
-只允许把标定下调到同时低于当前标定和当前 Forex 的值：
+只允许把标定下调到同时低于所选档位当前标定和当前 Forex 的值。省略
+`target_amount` 时修改默认标定：
 
 ```bash
 curl -fsS \
   -H "Authorization: Bearer $C2C_APP_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"benchmark_price": 7.05}' \
+  -d '{"benchmark_price": 6.70, "target_amount": 1000}' \
   http://127.0.0.1:8001/api/alerts/benchmark
 ```
 
-标定值持久化在 MySQL `alert_benchmarks` 表中，不属于运行时配置。
+默认标定持久化在 MySQL `alert_benchmarks` 表中，档位覆盖持久化在
+`alert_benchmark_overrides` 表中，均不属于运行时轮询配置。
 
 ### 健康检查
 
