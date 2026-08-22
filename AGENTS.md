@@ -52,7 +52,7 @@
 - `POST /api/config`、`POST /api/alerts/benchmark` 和 `POST /api/alerts/reset` 必须经过 Bearer token 鉴权
 - `/healthz` 只表示进程存活；`/readyz` 必须拒绝缺失或过期的 Forex 参考价
 - 交易所状态必须保留 `OK`、`Degraded`、`Error` 三态，不能用部分成功掩盖失败金额档位
-- 全局告警标定只能下降；SMTP 发送失败时不能推进市场新低状态
+- 默认告警标定和金额档位覆盖都只能下降；SMTP 发送失败时不能推进市场新低状态
 - 运行时 C2C / Forex 周期更新必须唤醒调度器，且同类采集轮次不能重叠
 - `make doctor` 必须通过，至少覆盖：
   - 核心 docs 骨架存在

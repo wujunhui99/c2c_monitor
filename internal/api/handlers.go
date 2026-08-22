@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -178,20 +179,28 @@ func (h *Handler) GetAlertStatus(c *gin.Context) {
 }
 
 func (h *Handler) GetAlertBenchmark(c *gin.Context) {
-	benchmarkPrice, forexRate, err := h.svc.GetAlertBenchmark(c.Request.Context())
+	targetAmount, err := parseOptionalTargetAmount(c.Query("amount"))
 	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	status, err := h.svc.GetAlertBenchmark(c.Request.Context(), targetAmount)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidAlertBenchmark) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{
-		"benchmark_price": benchmarkPrice,
-		"forex_rate":      forexRate,
-	}})
+	c.JSON(http.StatusOK, gin.H{"data": status})
 }
 
 type UpdateAlertBenchmarkRequest struct {
 	BenchmarkPrice *float64 `json:"benchmark_price"`
+	TargetAmount   *float64 `json:"target_amount"`
 }
 
 func (h *Handler) UpdateAlertBenchmark(c *gin.Context) {
@@ -206,21 +215,12 @@ func (h *Handler) UpdateAlertBenchmark(c *gin.Context) {
 		return
 	}
 
-	_, forexRate, err := h.svc.GetAlertBenchmark(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		return
-	}
 	if math.IsNaN(*req.BenchmarkPrice) || math.IsInf(*req.BenchmarkPrice, 0) || *req.BenchmarkPrice <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "benchmark_price must be greater than 0"})
 		return
 	}
-	if *req.BenchmarkPrice >= forexRate {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "benchmark_price must be lower than the current Forex rate"})
-		return
-	}
 
-	benchmarkPrice, forexRate, err := h.svc.UpdateAlertBenchmark(c.Request.Context(), *req.BenchmarkPrice)
+	status, err := h.svc.UpdateAlertBenchmark(c.Request.Context(), *req.BenchmarkPrice, req.TargetAmount)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidAlertBenchmark) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -230,10 +230,18 @@ func (h *Handler) UpdateAlertBenchmark(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": gin.H{
-		"benchmark_price": benchmarkPrice,
-		"forex_rate":      forexRate,
-	}})
+	c.JSON(http.StatusOK, gin.H{"data": status})
+}
+
+func parseOptionalTargetAmount(raw string) (*float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	amount, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 {
+		return nil, fmt.Errorf("amount must be >= 0")
+	}
+	return &amount, nil
 }
 
 type ResetAlertRequest struct {

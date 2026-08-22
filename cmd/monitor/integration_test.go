@@ -274,16 +274,18 @@ func (noopNotifier) Send(ctx context.Context, subject, body string) error {
 }
 
 type memoryRepository struct {
-	mu             sync.RWMutex
-	prices         []*domain.PricePoint
-	forexRates     []*domain.ForexRate
-	alertStates    map[string]*domain.AlertState
-	alertBenchmark *domain.AlertBenchmark
+	mu                 sync.RWMutex
+	prices             []*domain.PricePoint
+	forexRates         []*domain.ForexRate
+	alertStates        map[string]*domain.AlertState
+	alertBenchmark     *domain.AlertBenchmark
+	benchmarkOverrides map[float64]*domain.AlertBenchmarkOverride
 }
 
 func newMemoryRepository() *memoryRepository {
 	return &memoryRepository{
-		alertStates: make(map[string]*domain.AlertState),
+		alertStates:        make(map[string]*domain.AlertState),
+		benchmarkOverrides: make(map[float64]*domain.AlertBenchmarkOverride),
 	}
 }
 
@@ -397,6 +399,30 @@ func (r *memoryRepository) GetAlertBenchmark(ctx context.Context, pair string) (
 	}
 	copyBenchmark := *r.alertBenchmark
 	return &copyBenchmark, nil
+}
+
+func (r *memoryRepository) UpsertAlertBenchmarkOverride(ctx context.Context, override *domain.AlertBenchmarkOverride) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	copyOverride := *override
+	r.benchmarkOverrides[override.TargetAmount] = &copyOverride
+	return nil
+}
+
+func (r *memoryRepository) GetAlertBenchmarkOverrides(ctx context.Context, pair string) ([]*domain.AlertBenchmarkOverride, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	results := make([]*domain.AlertBenchmarkOverride, 0, len(r.benchmarkOverrides))
+	for _, override := range r.benchmarkOverrides {
+		if override.Pair != pair {
+			continue
+		}
+		copyOverride := *override
+		results = append(results, &copyOverride)
+	}
+	return results, nil
 }
 
 func (r *memoryRepository) filteredPrices(filter domain.PriceQueryFilter) []*domain.PricePoint {

@@ -12,6 +12,7 @@ const (
 	initialSchemaMigration    = "2026040401_initial_schema"
 	reliabilityIndexMigration = "2026081301_reliability_indexes"
 	alertBenchmarkMigration   = "2026082001_alert_benchmark"
+	amountBenchmarkMigration  = "2026082201_amount_benchmark_overrides"
 )
 
 type SchemaMigrationDAO struct {
@@ -46,6 +47,12 @@ var migrations = []Migration{
 		Name: alertBenchmarkMigration,
 		Up: func(tx *gorm.DB) error {
 			return tx.AutoMigrate(&AlertBenchmarkDAO{})
+		},
+	},
+	{
+		Name: amountBenchmarkMigration,
+		Up: func(tx *gorm.DB) error {
+			return tx.AutoMigrate(&AlertBenchmarkOverrideDAO{})
 		},
 	},
 }

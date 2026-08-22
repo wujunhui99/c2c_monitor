@@ -8,8 +8,13 @@ const state = {
     },
     alertBenchmark: {
         benchmark_price: null,
-        forex_rate: null
+        global_benchmark_price: null,
+        forex_rate: null,
+        target_amount: null,
+        override_price: null
     },
+    benchmarkScope: null,
+    dashboardBenchmarkPrice: null,
     version: 'unknown',
     supportedExchanges: [],
     historyKeys: {},
@@ -26,10 +31,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initChart();
     
-    Promise.all([loadMeta(), loadConfig(), loadAlertBenchmark()]).then(() => {
+    Promise.all([loadMeta(), loadConfig()]).then(async () => {
         // After config loaded, load initial data
         if (state.config.target_amounts && state.config.target_amounts.length > 0) {
             state.currentAmount = state.config.target_amounts[0];
+            await Promise.all([loadAlertBenchmark(), loadDashboardBenchmark()]);
             loadChartData();
         }
         loadActiveAlerts();
@@ -48,9 +54,12 @@ function getElements() {
         forexIntervalInput: document.getElementById('forex-interval'),
         forexMaxAgeInput: document.getElementById('forex-max-age'),
         alertBenchmarkInput: document.getElementById('alert-benchmark-input'),
+        alertBenchmarkScope: document.getElementById('alert-benchmark-scope'),
         currentForexRate: document.getElementById('current-forex-rate'),
+        globalAlertBenchmark: document.getElementById('global-alert-benchmark'),
         currentAlertBenchmark: document.getElementById('current-alert-benchmark'),
         dashboardBenchmark: document.getElementById('dashboard-benchmark'),
+        dashboardBenchmarkLabel: document.getElementById('dashboard-benchmark-label'),
         alertBenchmarkLimit: document.getElementById('alert-benchmark-limit'),
         saveBenchmarkBtn: document.getElementById('save-benchmark-btn'),
         benchmarkSaveStatus: document.getElementById('benchmark-save-status'),
@@ -93,7 +102,7 @@ function initTabs() {
             if (target === 'dashboard') {
                 loadActiveAlerts();
                 loadSystemStatus();
-                loadAlertBenchmark().then(loadChartData);
+                loadDashboardBenchmark().then(loadChartData);
             }
         });
     });
@@ -216,8 +225,9 @@ function bindEvents() {
 
     // Dashboard Controls
     if (el.amountSelect) {
-        el.amountSelect.addEventListener('change', (e) => {
+        el.amountSelect.addEventListener('change', async (e) => {
             state.currentAmount = Number(e.target.value);
+            await loadDashboardBenchmark();
             loadChartData();
         });
     }
@@ -237,7 +247,7 @@ function bindEvents() {
         el.refreshBtn.addEventListener('click', async () => {
             loadActiveAlerts();
             loadSystemStatus();
-            await loadAlertBenchmark();
+            await Promise.all([loadAlertBenchmark(), loadDashboardBenchmark()]);
             loadChartData();
         });
     }
@@ -251,6 +261,12 @@ function bindEvents() {
     }
     if (el.saveBenchmarkBtn) {
         el.saveBenchmarkBtn.addEventListener('click', saveAlertBenchmark);
+    }
+    if (el.alertBenchmarkScope) {
+        el.alertBenchmarkScope.addEventListener('change', async (event) => {
+            state.benchmarkScope = event.target.value === 'global' ? null : Number(event.target.value);
+            await loadAlertBenchmark();
+        });
     }
     if (el.adminTokenInput) {
         el.adminTokenInput.value = sessionStorage.getItem('c2cAdminToken') || '';
@@ -328,24 +344,65 @@ async function loadAlertBenchmark() {
     const el = getElements();
 
     try {
-        const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/benchmark`);
+        const response = await fetch(alertBenchmarkURL(state.benchmarkScope));
         if (!response.ok) throw new Error(await readErrorResponse(response) || 'Failed to fetch alert benchmark');
         const json = await response.json();
-        state.alertBenchmark = {
-            benchmark_price: Number(json.data?.benchmark_price),
-            forex_rate: Number(json.data?.forex_rate)
-        };
+        state.alertBenchmark = normalizeAlertBenchmark(json.data);
         renderAlertBenchmark();
         setBenchmarkStatus('', false);
     } catch (error) {
         console.error('Error loading alert benchmark:', error);
-        state.alertBenchmark = { benchmark_price: null, forex_rate: null };
+        state.alertBenchmark = normalizeAlertBenchmark(null);
         renderAlertBenchmark();
         if (el.benchmarkSaveStatus) {
             el.benchmarkSaveStatus.textContent = 'Benchmark unavailable';
             el.benchmarkSaveStatus.style.color = 'red';
         }
     }
+}
+
+async function loadDashboardBenchmark() {
+    const el = getElements();
+    if (state.currentAmount === null) return;
+
+    try {
+        const response = await fetch(alertBenchmarkURL(state.currentAmount));
+        if (!response.ok) throw new Error(await readErrorResponse(response) || 'Failed to fetch dashboard benchmark');
+        const json = await response.json();
+        const benchmark = normalizeAlertBenchmark(json.data);
+        state.dashboardBenchmarkPrice = benchmark.benchmark_price;
+        if (el.dashboardBenchmark) {
+            el.dashboardBenchmark.textContent = Number.isFinite(benchmark.benchmark_price)
+                ? `${benchmark.benchmark_price.toFixed(4)} CNY`
+                : '--';
+        }
+        if (el.dashboardBenchmarkLabel) {
+            el.dashboardBenchmarkLabel.textContent = `${formatAmountTier(state.currentAmount)} Benchmark`;
+        }
+    } catch (error) {
+        console.error('Error loading dashboard benchmark:', error);
+        state.dashboardBenchmarkPrice = null;
+        if (el.dashboardBenchmark) el.dashboardBenchmark.textContent = '--';
+    }
+}
+
+function alertBenchmarkURL(targetAmount) {
+    const baseURL = `${AppConfig.apiBaseUrl}/api/alerts/benchmark`;
+    return targetAmount === null || targetAmount === undefined
+        ? baseURL
+        : `${baseURL}?amount=${encodeURIComponent(targetAmount)}`;
+}
+
+function normalizeAlertBenchmark(data) {
+    const targetAmount = data?.target_amount;
+    const overridePrice = data?.override_price;
+    return {
+        benchmark_price: Number(data?.benchmark_price),
+        global_benchmark_price: Number(data?.global_benchmark_price),
+        forex_rate: Number(data?.forex_rate),
+        target_amount: targetAmount === null || targetAmount === undefined ? null : Number(targetAmount),
+        override_price: overridePrice === null || overridePrice === undefined ? null : Number(overridePrice)
+    };
 }
 
 async function saveAlertBenchmark() {
@@ -378,18 +435,19 @@ async function saveAlertBenchmark() {
         const response = await fetch(`${AppConfig.apiBaseUrl}/api/alerts/benchmark`, {
             method: 'POST',
             headers: adminHeaders(token),
-            body: JSON.stringify({ benchmark_price: benchmarkPrice })
+            body: JSON.stringify({
+                benchmark_price: benchmarkPrice,
+                ...(state.benchmarkScope === null ? {} : { target_amount: state.benchmarkScope })
+            })
         });
 
         if (response.ok) {
             const json = await response.json();
-            state.alertBenchmark = {
-                benchmark_price: Number(json.data?.benchmark_price),
-                forex_rate: Number(json.data?.forex_rate)
-            };
+            state.alertBenchmark = normalizeAlertBenchmark(json.data);
             el.alertBenchmarkInput.value = '';
             renderAlertBenchmark();
             setBenchmarkStatus('Benchmark saved', false);
+            await loadDashboardBenchmark();
             loadChartData();
         } else if (response.status === 401) {
             clearAdminToken();
@@ -411,7 +469,7 @@ function setBenchmarkStatus(message, isError) {
 }
 
 async function resetAlert(key) {
-    if (!confirm('Reset this market to the global alert benchmark?')) return;
+    if (!confirm('Reset this market to its configured amount-tier benchmark?')) return;
 
     const parts = parseAlertKey(key);
     if (!parts) {
@@ -459,7 +517,7 @@ function renderActiveAlerts(states) {
         const td = document.createElement('td');
         td.colSpan = 3;
         td.className = 'empty-table-state';
-        td.textContent = 'No market-specific lows yet. Using the global alert benchmark.';
+        td.textContent = 'No market-specific lows yet. Using configured amount-tier benchmarks.';
         tr.appendChild(td);
         el.alertStatusTableBody.appendChild(tr);
         return;
@@ -615,6 +673,8 @@ async function saveConfig() {
             setTimeout(() => el.saveStatus.textContent = '', 3000);
             state.config = newConfig;
             renderConfigUI();
+            await loadDashboardBenchmark();
+            loadChartData();
         } else if (response.status === 401) {
             clearAdminToken();
             el.saveStatus.textContent = 'Admin token rejected';
@@ -637,6 +697,7 @@ function renderConfigUI() {
     if (el.c2cIntervalInput) el.c2cIntervalInput.value = state.config.c2c_interval_minutes;
     if (el.forexIntervalInput) el.forexIntervalInput.value = state.config.forex_interval_hours;
     if (el.forexMaxAgeInput) el.forexMaxAgeInput.value = state.config.forex_max_age_hours;
+    renderBenchmarkScopeOptions();
 
     // Render Tags in Settings
     if (el.amountTagsContainer) {
@@ -676,26 +737,55 @@ function renderConfigUI() {
         if (!state.config.target_amounts.includes(state.currentAmount) && state.config.target_amounts.length > 0) {
             state.currentAmount = state.config.target_amounts[0];
             el.amountSelect.value = state.currentAmount;
-            loadChartData();
         }
     }
+}
+
+function renderBenchmarkScopeOptions() {
+    const el = getElements();
+    if (!el.alertBenchmarkScope) return;
+    if (state.benchmarkScope !== null && !state.config.target_amounts.includes(state.benchmarkScope)) {
+        state.benchmarkScope = null;
+    }
+
+    el.alertBenchmarkScope.replaceChildren();
+    const globalOption = document.createElement('option');
+    globalOption.value = 'global';
+    globalOption.textContent = 'Default for unconfigured tiers';
+    globalOption.selected = state.benchmarkScope === null;
+    el.alertBenchmarkScope.appendChild(globalOption);
+
+    const sortedAmounts = [...state.config.target_amounts].sort((a, b) => a - b);
+    sortedAmounts.forEach(amount => {
+        const option = document.createElement('option');
+        option.value = amount;
+        option.textContent = formatAmountTier(amount);
+        option.selected = state.benchmarkScope === amount;
+        el.alertBenchmarkScope.appendChild(option);
+    });
+}
+
+function formatAmountTier(amount) {
+    return amount === 0 ? 'Lowest tier' : `${amount} CNY tier`;
 }
 
 function renderAlertBenchmark() {
     const el = getElements();
     const benchmarkPrice = state.alertBenchmark.benchmark_price;
+    const globalBenchmarkPrice = state.alertBenchmark.global_benchmark_price;
     const forexRate = state.alertBenchmark.forex_rate;
     const hasBenchmark = Number.isFinite(benchmarkPrice) && benchmarkPrice > 0;
+    const hasGlobalBenchmark = Number.isFinite(globalBenchmarkPrice) && globalBenchmarkPrice > 0;
     const hasForex = Number.isFinite(forexRate) && forexRate > 0;
 
     if (el.currentForexRate) {
         el.currentForexRate.textContent = hasForex ? `${forexRate.toFixed(4)} CNY` : '--';
     }
+    if (el.globalAlertBenchmark) {
+        el.globalAlertBenchmark.textContent = hasGlobalBenchmark ? `${globalBenchmarkPrice.toFixed(4)} CNY` : '--';
+    }
     if (el.currentAlertBenchmark) {
         el.currentAlertBenchmark.textContent = hasBenchmark ? `${benchmarkPrice.toFixed(4)} CNY` : '--';
-    }
-    if (el.dashboardBenchmark) {
-        el.dashboardBenchmark.textContent = hasBenchmark ? `${benchmarkPrice.toFixed(4)} CNY` : '--';
     }
     if (el.alertBenchmarkInput) {
         const upperBound = hasBenchmark && hasForex && Math.min(benchmarkPrice, forexRate) > 0.0001
@@ -758,18 +848,18 @@ function updateChart(data) {
             buildSeries(FOREX_SERIES_NAME, forexData, {
                 itemStyle: { color: '#dc3545' },
                 lineStyle: { type: 'dashed', width: 2 },
-                markLine: Number.isFinite(state.alertBenchmark.benchmark_price) ? {
+                markLine: Number.isFinite(state.dashboardBenchmarkPrice) ? {
                     silent: true,
                     symbol: 'none',
                     lineStyle: { color: '#8b5cf6', type: 'dotted', width: 2 },
                     label: {
-                        formatter: `标定 ${state.alertBenchmark.benchmark_price.toFixed(4)}`,
+                        formatter: `标定 ${state.dashboardBenchmarkPrice.toFixed(4)}`,
                         position: 'insideEndTop',
                         color: '#5b21b6',
                         backgroundColor: 'rgba(255, 255, 255, 0.9)',
                         padding: [2, 4]
                     },
-                    data: [{ yAxis: state.alertBenchmark.benchmark_price }]
+                    data: [{ yAxis: state.dashboardBenchmarkPrice }]
                 } : undefined
             })
         ]

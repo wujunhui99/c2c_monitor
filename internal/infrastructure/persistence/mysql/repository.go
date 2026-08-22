@@ -169,6 +169,19 @@ func (AlertBenchmarkDAO) TableName() string {
 	return "alert_benchmarks"
 }
 
+// AlertBenchmarkOverrideDAO stores amount-tier-specific alert benchmarks.
+type AlertBenchmarkOverrideDAO struct {
+	Pair         string  `gorm:"type:varchar(10);uniqueIndex:idx_alert_benchmark_override,priority:1"`
+	TargetAmount float64 `gorm:"type:decimal(18,8);uniqueIndex:idx_alert_benchmark_override,priority:2"`
+	Price        float64 `gorm:"type:decimal(18,8)"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+func (AlertBenchmarkOverrideDAO) TableName() string {
+	return "alert_benchmark_overrides"
+}
+
 // MySQLRepository implements domain.IRepository
 type MySQLRepository struct {
 	db *gorm.DB
@@ -190,6 +203,7 @@ func schemaModels() []any {
 		&MerchantDAO{},
 		&AlertStateDAO{},
 		&AlertBenchmarkDAO{},
+		&AlertBenchmarkOverrideDAO{},
 	}
 }
 
@@ -691,4 +705,39 @@ func (r *MySQLRepository) GetAlertBenchmark(ctx context.Context, pair string) (*
 		CreatedAt: dao.CreatedAt,
 		UpdatedAt: dao.UpdatedAt,
 	}, nil
+}
+
+func (r *MySQLRepository) UpsertAlertBenchmarkOverride(ctx context.Context, override *domain.AlertBenchmarkOverride) error {
+	dao := &AlertBenchmarkOverrideDAO{
+		Pair:         override.Pair,
+		TargetAmount: override.TargetAmount,
+		Price:        override.Price,
+	}
+
+	return r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "pair"},
+			{Name: "target_amount"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"price", "updated_at"}),
+	}).Create(dao).Error
+}
+
+func (r *MySQLRepository) GetAlertBenchmarkOverrides(ctx context.Context, pair string) ([]*domain.AlertBenchmarkOverride, error) {
+	var daos []AlertBenchmarkOverrideDAO
+	if err := r.db.WithContext(ctx).Where("pair = ?", pair).Find(&daos).Error; err != nil {
+		return nil, err
+	}
+
+	results := make([]*domain.AlertBenchmarkOverride, len(daos))
+	for i, dao := range daos {
+		results[i] = &domain.AlertBenchmarkOverride{
+			Pair:         dao.Pair,
+			TargetAmount: dao.TargetAmount,
+			Price:        dao.Price,
+			CreatedAt:    dao.CreatedAt,
+			UpdatedAt:    dao.UpdatedAt,
+		}
+	}
+	return results, nil
 }

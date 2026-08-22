@@ -33,6 +33,7 @@ type MonitorService struct {
 	benchmarkMu         sync.RWMutex
 	alertBenchmark      float64
 	alertBenchmarkDirty bool
+	benchmarkOverrides  map[float64]float64
 	scheduleMu          sync.Mutex
 	configChanged       chan struct{}
 	errorAlertCache     map[string]time.Time             // To prevent spamming error alerts
@@ -65,6 +66,7 @@ func NewMonitorService(
 		configChanged:      make(chan struct{}),
 		errorAlertCache:    make(map[string]time.Time),
 		triggeredLowPrices: make(map[string]float64),
+		benchmarkOverrides: make(map[float64]float64),
 		serviceStatus:      make(map[string]*domain.ServiceStatus),
 		downEventLogger:    newServiceDownLogger(serviceDownLogPath),
 	}
@@ -316,6 +318,27 @@ func (s *MonitorService) loadPersistedAlertBenchmark(ctx context.Context) {
 	slog.Info("loaded persisted alert benchmark", "event", "alert_benchmark_loaded", "price", benchmark.Price)
 }
 
+func (s *MonitorService) loadPersistedAlertBenchmarkOverrides(ctx context.Context) {
+	overrides, err := s.repo.GetAlertBenchmarkOverrides(ctx, alertBenchmarkPair)
+	if err != nil {
+		slog.Error("failed to load persisted amount benchmarks", "event", "alert_benchmark_overrides_load_failed", "error", err)
+		return
+	}
+
+	s.benchmarkMu.Lock()
+	defer s.benchmarkMu.Unlock()
+	for _, override := range overrides {
+		if math.IsNaN(override.TargetAmount) || math.IsInf(override.TargetAmount, 0) || override.TargetAmount < 0 {
+			continue
+		}
+		if math.IsNaN(override.Price) || math.IsInf(override.Price, 0) || override.Price <= 0 {
+			continue
+		}
+		s.benchmarkOverrides[override.TargetAmount] = override.Price
+	}
+	slog.Info("loaded persisted amount benchmarks", "event", "alert_benchmark_overrides_loaded", "count", len(s.benchmarkOverrides))
+}
+
 // Start begins the monitoring loops
 func (s *MonitorService) Start(ctx context.Context) {
 	slog.Info("monitor service started", "event", "monitor_service_started")
@@ -323,6 +346,7 @@ func (s *MonitorService) Start(ctx context.Context) {
 	// Recover persisted dynamic thresholds and cooldown timestamps.
 	s.loadPersistedAlertStates(ctx)
 	s.loadPersistedAlertBenchmark(ctx)
+	s.loadPersistedAlertBenchmarkOverrides(ctx)
 
 	// Initial Forex fetch
 	s.updateForex(ctx)
@@ -716,7 +740,7 @@ func (s *MonitorService) checkAlert(ctx context.Context, p domain.PricePoint) {
 	if err != nil {
 		return
 	}
-	benchmarkPrice := s.reconcileAlertBenchmark(ctx, forexRate)
+	benchmarkPrice := s.effectiveAlertBenchmark(ctx, forexRate, p.TargetAmount)
 
 	spread := (forexRate - p.Price) / forexRate * 100
 	alertKey := domain.AlertStateKey(p.Exchange, p.Side, p.TargetAmount)
@@ -845,50 +869,87 @@ func (s *MonitorService) GetConfig() config.MonitorConfig {
 	return s.getConfigSnapshot()
 }
 
-func (s *MonitorService) GetAlertBenchmark(ctx context.Context) (float64, float64, error) {
-	forexRate, err := s.usableForex(time.Now())
-	if err != nil {
-		return 0, 0, err
+func (s *MonitorService) GetAlertBenchmark(ctx context.Context, targetAmount *float64) (domain.AlertBenchmarkStatus, error) {
+	if err := s.validateBenchmarkTargetAmount(targetAmount); err != nil {
+		return domain.AlertBenchmarkStatus{}, err
 	}
 
-	return s.reconcileAlertBenchmark(ctx, forexRate), forexRate, nil
-}
-
-func (s *MonitorService) UpdateAlertBenchmark(ctx context.Context, requestedPrice float64) (float64, float64, error) {
 	forexRate, err := s.usableForex(time.Now())
 	if err != nil {
-		return 0, 0, err
+		return domain.AlertBenchmarkStatus{}, err
+	}
+
+	globalBenchmark := s.reconcileAlertBenchmark(ctx, forexRate)
+	return s.buildAlertBenchmarkStatus(globalBenchmark, forexRate, targetAmount), nil
+}
+
+func (s *MonitorService) UpdateAlertBenchmark(ctx context.Context, requestedPrice float64, targetAmount *float64) (domain.AlertBenchmarkStatus, error) {
+	if err := s.validateBenchmarkTargetAmount(targetAmount); err != nil {
+		return domain.AlertBenchmarkStatus{}, err
+	}
+
+	forexRate, err := s.usableForex(time.Now())
+	if err != nil {
+		return domain.AlertBenchmarkStatus{}, err
 	}
 
 	if math.IsNaN(requestedPrice) || math.IsInf(requestedPrice, 0) || requestedPrice <= 0 {
-		return 0, forexRate, fmt.Errorf("%w: benchmark_price must be greater than 0", ErrInvalidAlertBenchmark)
+		return domain.AlertBenchmarkStatus{}, fmt.Errorf("%w: benchmark_price must be greater than 0", ErrInvalidAlertBenchmark)
 	}
 	if requestedPrice >= forexRate {
-		return 0, forexRate, fmt.Errorf("%w: benchmark_price must be lower than the current Forex rate %.4f", ErrInvalidAlertBenchmark, forexRate)
+		return domain.AlertBenchmarkStatus{}, fmt.Errorf("%w: benchmark_price must be lower than the current Forex rate %.4f", ErrInvalidAlertBenchmark, forexRate)
 	}
 
+	globalBenchmark := s.reconcileAlertBenchmark(ctx, forexRate)
 	s.benchmarkMu.Lock()
 	defer s.benchmarkMu.Unlock()
 
-	currentPrice := forexRate
-	if s.alertBenchmark > 0 && s.alertBenchmark < currentPrice {
-		currentPrice = s.alertBenchmark
+	currentPrice := globalBenchmark
+	if targetAmount != nil {
+		if override, exists := s.benchmarkOverrides[*targetAmount]; exists && override < currentPrice {
+			currentPrice = override
+		}
 	}
 	if requestedPrice >= currentPrice {
-		return currentPrice, forexRate, fmt.Errorf("%w: benchmark_price must be lower than the current benchmark %.4f", ErrInvalidAlertBenchmark, currentPrice)
+		return domain.AlertBenchmarkStatus{}, fmt.Errorf("%w: benchmark_price must be lower than the current benchmark %.4f", ErrInvalidAlertBenchmark, currentPrice)
+	}
+
+	if targetAmount != nil {
+		if err := s.repo.UpsertAlertBenchmarkOverride(ctx, &domain.AlertBenchmarkOverride{
+			Pair:         alertBenchmarkPair,
+			TargetAmount: *targetAmount,
+			Price:        requestedPrice,
+		}); err != nil {
+			return domain.AlertBenchmarkStatus{}, fmt.Errorf("persist amount alert benchmark: %w", err)
+		}
+		s.benchmarkOverrides[*targetAmount] = requestedPrice
+		overridePrice := requestedPrice
+		targetCopy := *targetAmount
+		slog.Info("updated amount alert benchmark", "event", "alert_benchmark_override_updated", "target_amount", targetCopy, "price", requestedPrice, "forex_rate", forexRate)
+		return domain.AlertBenchmarkStatus{
+			BenchmarkPrice:       requestedPrice,
+			GlobalBenchmarkPrice: globalBenchmark,
+			ForexRate:            forexRate,
+			TargetAmount:         &targetCopy,
+			OverridePrice:        &overridePrice,
+		}, nil
 	}
 
 	if err := s.repo.UpsertAlertBenchmark(ctx, &domain.AlertBenchmark{
 		Pair:  alertBenchmarkPair,
 		Price: requestedPrice,
 	}); err != nil {
-		return 0, forexRate, fmt.Errorf("persist alert benchmark: %w", err)
+		return domain.AlertBenchmarkStatus{}, fmt.Errorf("persist alert benchmark: %w", err)
 	}
 	s.alertBenchmark = requestedPrice
 	s.alertBenchmarkDirty = false
 
 	slog.Info("updated alert benchmark", "event", "alert_benchmark_updated", "price", requestedPrice, "forex_rate", forexRate)
-	return requestedPrice, forexRate, nil
+	return domain.AlertBenchmarkStatus{
+		BenchmarkPrice:       requestedPrice,
+		GlobalBenchmarkPrice: requestedPrice,
+		ForexRate:            forexRate,
+	}, nil
 }
 
 func (s *MonitorService) UpdateConfig(newCfg config.MonitorConfig) error {
@@ -935,4 +996,57 @@ func (s *MonitorService) reconcileAlertBenchmark(ctx context.Context, forexRate 
 	s.alertBenchmarkDirty = false
 
 	return nextPrice
+}
+
+func (s *MonitorService) effectiveAlertBenchmark(ctx context.Context, forexRate, targetAmount float64) float64 {
+	globalBenchmark := s.reconcileAlertBenchmark(ctx, forexRate)
+
+	s.benchmarkMu.RLock()
+	defer s.benchmarkMu.RUnlock()
+	if override, exists := s.benchmarkOverrides[targetAmount]; exists && override < globalBenchmark {
+		return override
+	}
+	return globalBenchmark
+}
+
+func (s *MonitorService) buildAlertBenchmarkStatus(globalBenchmark, forexRate float64, targetAmount *float64) domain.AlertBenchmarkStatus {
+	status := domain.AlertBenchmarkStatus{
+		BenchmarkPrice:       globalBenchmark,
+		GlobalBenchmarkPrice: globalBenchmark,
+		ForexRate:            forexRate,
+	}
+	if targetAmount == nil {
+		return status
+	}
+
+	targetCopy := *targetAmount
+	status.TargetAmount = &targetCopy
+
+	s.benchmarkMu.RLock()
+	defer s.benchmarkMu.RUnlock()
+	if override, exists := s.benchmarkOverrides[targetCopy]; exists {
+		overrideCopy := override
+		status.OverridePrice = &overrideCopy
+		if override < status.BenchmarkPrice {
+			status.BenchmarkPrice = override
+		}
+	}
+	return status
+}
+
+func (s *MonitorService) validateBenchmarkTargetAmount(targetAmount *float64) error {
+	if targetAmount == nil {
+		return nil
+	}
+	if math.IsNaN(*targetAmount) || math.IsInf(*targetAmount, 0) || *targetAmount < 0 {
+		return fmt.Errorf("%w: target_amount must be >= 0", ErrInvalidAlertBenchmark)
+	}
+
+	cfg := s.getConfigSnapshot()
+	for _, configuredAmount := range cfg.TargetAmounts {
+		if configuredAmount == *targetAmount {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: target_amount %.4f is not configured", ErrInvalidAlertBenchmark, *targetAmount)
 }

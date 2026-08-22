@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,6 +148,25 @@ func TestAlertBenchmarkRoutesOnlyAllowLowerPrices(t *testing.T) {
 	if recorder := update(`{"benchmark_price":7.2}`); recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected Forex-equal benchmark to be rejected, got %d: %s", recorder.Code, recorder.Body.String())
 	}
+	if recorder := update(`{"benchmark_price":6.70,"target_amount":1000}`); recorder.Code != http.StatusOK {
+		t.Fatalf("expected 1000 tier benchmark to be accepted, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if override := repo.benchmarkOverrides[1000]; override == nil || override.Price != 6.70 {
+		t.Fatalf("expected persisted 1000 tier benchmark 6.70, got %#v", override)
+	}
+
+	tierRecorder := httptest.NewRecorder()
+	router.ServeHTTP(tierRecorder, httptest.NewRequest(http.MethodGet, "/api/alerts/benchmark?amount=1000", nil))
+	if tierRecorder.Code != http.StatusOK || !strings.Contains(tierRecorder.Body.String(), `"benchmark_price":6.7`) {
+		t.Fatalf("expected 1000 tier benchmark response, got %d: %s", tierRecorder.Code, tierRecorder.Body.String())
+	}
+
+	unknownTierRecorder := httptest.NewRecorder()
+	router.ServeHTTP(unknownTierRecorder, httptest.NewRequest(http.MethodGet, "/api/alerts/benchmark?amount=999", nil))
+	if unknownTierRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected unconfigured tier to be rejected, got %d: %s", unknownTierRecorder.Code, unknownTierRecorder.Body.String())
+	}
+
 	if recorder := update(`{"benchmark_price":7.1}`); recorder.Code != http.StatusOK {
 		t.Fatalf("expected lower benchmark to be accepted, got %d: %s", recorder.Code, recorder.Body.String())
 	}
@@ -201,7 +221,7 @@ func newTestService() (*service.MonitorService, *apiTestRepository) {
 			C2CIntervalMinutes: 3,
 			ForexIntervalHours: 1,
 			ForexMaxAgeHours:   6,
-			TargetAmounts:      []float64{0, 30},
+			TargetAmounts:      []float64{0, 30, 1000},
 			Exchanges:          []string{domain.ExchangeGate},
 		},
 		repo,
@@ -225,10 +245,11 @@ func (apiTestNotifier) Send(ctx context.Context, subject, body string) error {
 }
 
 type apiTestRepository struct {
-	deletedExchange string
-	deletedSide     string
-	deletedAmount   float64
-	alertBenchmark  *domain.AlertBenchmark
+	deletedExchange    string
+	deletedSide        string
+	deletedAmount      float64
+	alertBenchmark     *domain.AlertBenchmark
+	benchmarkOverrides map[float64]*domain.AlertBenchmarkOverride
 }
 
 func (r *apiTestRepository) SavePricePoints(ctx context.Context, points []*domain.PricePoint) error {
@@ -290,4 +311,25 @@ func (r *apiTestRepository) GetAlertBenchmark(ctx context.Context, pair string) 
 	}
 	copyBenchmark := *r.alertBenchmark
 	return &copyBenchmark, nil
+}
+
+func (r *apiTestRepository) UpsertAlertBenchmarkOverride(ctx context.Context, override *domain.AlertBenchmarkOverride) error {
+	if r.benchmarkOverrides == nil {
+		r.benchmarkOverrides = make(map[float64]*domain.AlertBenchmarkOverride)
+	}
+	copyOverride := *override
+	r.benchmarkOverrides[override.TargetAmount] = &copyOverride
+	return nil
+}
+
+func (r *apiTestRepository) GetAlertBenchmarkOverrides(ctx context.Context, pair string) ([]*domain.AlertBenchmarkOverride, error) {
+	results := make([]*domain.AlertBenchmarkOverride, 0, len(r.benchmarkOverrides))
+	for _, override := range r.benchmarkOverrides {
+		if override.Pair != pair {
+			continue
+		}
+		copyOverride := *override
+		results = append(results, &copyOverride)
+	}
+	return results, nil
 }
