@@ -124,7 +124,7 @@ curl -fsS \
     "forex_interval_hours": 1,
     "forex_max_age_hours": 6,
     "target_amounts": [0, 30, 50, 200, 500, 1000],
-    "exchanges": ["Binance", "Gate", "OKX"]
+    "exchanges": ["Binance", "Bitget", "Gate", "OKX"]
   }' \
   http://127.0.0.1:8001/api/config
 ```

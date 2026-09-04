@@ -17,6 +17,7 @@ var payMethodAliases = map[string]string{
 	"wechat":          "微信",
 	"wechat pay":      "微信",
 	"微信":              "微信",
+	"微信支付":            "微信",
 	"alipay":          "支付宝",
 	"支付宝":             "支付宝",
 	"qq wallet":       "QQ 钱包",

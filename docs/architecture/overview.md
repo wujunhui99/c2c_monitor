@@ -33,7 +33,7 @@
 
 ## 关键不变量
 
-- 交易所名称统一使用标准写法：`Binance`、`Gate`、`OKX`
+- 交易所名称统一使用标准写法：`Binance`、`Bitget`、`Gate`、`OKX`
 - 配置边界要尽早校验：端口、轮询周期、金额档位、交易所列表
 - 管理写接口只有 `POST /api/config`、`POST /api/alerts/benchmark` 和 `POST /api/alerts/reset`，必须经过 Bearer token 鉴权
 - 管理 token 不通过读取接口返回，前端只在当前浏览器标签页会话中保存

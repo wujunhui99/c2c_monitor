@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "v1.6.0",
+      "released_at": "2026-09-04",
+      "summary": "Added Bitget CNY P2P price monitoring as the fourth exchange.",
+      "changes": [
+        "Added a Bitget public P2P adapter for USDT/CNY with user-side direction mapping and amount-tier server filtering.",
+        "Added local limit validation, payment-method normalization, price sorting, response-size protection, and failure-path tests.",
+        "Added Bitget to runtime defaults, service status, history metadata, charts, and production deployment configuration."
+      ]
+    },
+    {
       "version": "v1.5.1",
       "released_at": "2026-08-22",
       "summary": "Added independent alert benchmarks for each configured C2C amount tier.",

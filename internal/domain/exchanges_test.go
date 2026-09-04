@@ -6,12 +6,12 @@ import (
 )
 
 func TestNormalizeExchangeNames(t *testing.T) {
-	got, err := NormalizeExchangeNames([]string{"binance", "OKX", "gate", "Binance"})
+	got, err := NormalizeExchangeNames([]string{"binance", "BitGet", "OKX", "gate", "Binance"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	want := []string{ExchangeBinance, ExchangeOKX, ExchangeGate}
+	want := []string{ExchangeBinance, ExchangeBitget, ExchangeOKX, ExchangeGate}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
 	}

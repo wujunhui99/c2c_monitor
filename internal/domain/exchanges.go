@@ -7,18 +7,21 @@ import (
 
 const (
 	ExchangeBinance = "Binance"
+	ExchangeBitget  = "Bitget"
 	ExchangeGate    = "Gate"
 	ExchangeOKX     = "OKX"
 )
 
 var supportedExchanges = []string{
 	ExchangeBinance,
+	ExchangeBitget,
 	ExchangeGate,
 	ExchangeOKX,
 }
 
 var exchangeAliases = map[string]string{
 	"binance": ExchangeBinance,
+	"bitget":  ExchangeBitget,
 	"gate":    ExchangeGate,
 	"okx":     ExchangeOKX,
 }

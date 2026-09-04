@@ -8,7 +8,7 @@
 
 ### 数据采集
 
-- 交易所：`Binance`、`Gate`、`OKX`
+- 交易所：`Binance`、`Bitget`、`Gate`、`OKX`
 - 资产：`USDT/CNY`
 - 方向：用户 `BUY`
 - 采集粒度：

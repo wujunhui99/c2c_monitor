@@ -15,7 +15,7 @@ func TestNormalizeMonitorConfig(t *testing.T) {
 		ForexIntervalHours: 1,
 		ForexMaxAgeHours:   6,
 		TargetAmounts:      []float64{500, 0, 30, 500},
-		Exchanges:          []string{"okx", "binance", "OKX"},
+		Exchanges:          []string{"okx", "bitget", "binance", "OKX"},
 	}
 
 	got, err := NormalizeMonitorConfig(cfg)
@@ -27,7 +27,7 @@ func TestNormalizeMonitorConfig(t *testing.T) {
 		t.Fatalf("expected sorted unique target amounts, got %v", got.TargetAmounts)
 	}
 
-	if !reflect.DeepEqual(got.Exchanges, []string{domain.ExchangeOKX, domain.ExchangeBinance}) {
+	if !reflect.DeepEqual(got.Exchanges, []string{domain.ExchangeOKX, domain.ExchangeBitget, domain.ExchangeBinance}) {
 		t.Fatalf("expected normalized exchanges, got %v", got.Exchanges)
 	}
 }
