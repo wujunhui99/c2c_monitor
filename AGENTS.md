@@ -47,7 +47,7 @@
 
 ## Mechanical Invariants
 
-- 支持的交易所只有：`Binance`、`Gate`、`OKX`
+- 支持的交易所只有：`Binance`、`Bitget`、`Gate`、`OKX`
 - 配置加载阶段会把交易所名称规范化为上面的标准写法，并拒绝不支持的值
 - `POST /api/config`、`POST /api/alerts/benchmark` 和 `POST /api/alerts/reset` 必须经过 Bearer token 鉴权
 - `/healthz` 只表示进程存活；`/readyz` 必须拒绝缺失或过期的 Forex 参考价

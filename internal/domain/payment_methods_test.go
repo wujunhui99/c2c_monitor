@@ -12,6 +12,7 @@ func TestNormalizePayMethodName(t *testing.T) {
 		{name: "bank transfer", raw: "Bank Transfer", want: "银行卡"},
 		{name: "bank debit card", raw: "银行借记卡", want: "银行卡"},
 		{name: "wechat", raw: "wechat", want: "微信"},
+		{name: "wechat pay chinese", raw: "微信支付", want: "微信"},
 		{name: "alipay", raw: "Alipay", want: "支付宝"},
 		{name: "qq", raw: "qqwall", want: "QQ 钱包"},
 	}

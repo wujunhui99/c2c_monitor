@@ -58,7 +58,7 @@ func LoadConfig(path string) (*Config, error) {
 	v.SetDefault("monitor.forex_interval_hours", 1)
 	v.SetDefault("monitor.forex_max_age_hours", 6)
 	v.SetDefault("monitor.target_amounts", []float64{0, 30, 50, 200, 500, 1000})
-	v.SetDefault("monitor.exchanges", []string{"Binance", "Gate", "OKX"})
+	v.SetDefault("monitor.exchanges", []string{"Binance", "Bitget", "Gate", "OKX"})
 	v.SetDefault("notification.email.enabled", true)
 
 	// Environment variable support

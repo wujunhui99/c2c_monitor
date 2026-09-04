@@ -58,6 +58,7 @@ func main() {
 
 	exchanges := map[string]domain.IExchange{
 		domain.ExchangeBinance: exchange.NewBinanceAdapter(),
+		domain.ExchangeBitget:  exchange.NewBitgetAdapter(),
 		domain.ExchangeGate:    exchange.NewGateAdapter(),
 		domain.ExchangeOKX:     exchange.NewOKXAdapter(),
 	}

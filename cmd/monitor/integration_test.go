@@ -29,7 +29,7 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 			C2CIntervalMinutes: 1,
 			ForexIntervalHours: 1,
 			TargetAmounts:      []float64{30},
-			Exchanges:          []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
+			Exchanges:          domain.SupportedExchangeNames(),
 		},
 		Database: config.DatabaseConfig{DSN: "integration-test"},
 	}
@@ -37,6 +37,7 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 	repo := newMemoryRepository()
 	exchanges := map[string]domain.IExchange{
 		domain.ExchangeBinance: staticExchange{name: domain.ExchangeBinance, price: 7.08},
+		domain.ExchangeBitget:  staticExchange{name: domain.ExchangeBitget, price: 7.06},
 		domain.ExchangeGate:    staticExchange{name: domain.ExchangeGate, price: 7.09},
 		domain.ExchangeOKX:     staticExchange{name: domain.ExchangeOKX, price: 7.07},
 	}
@@ -92,11 +93,11 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 	if metaResp.Version == "" {
 		t.Fatal("expected non-empty version from meta route")
 	}
-	if len(metaResp.SupportedExchanges) != 3 {
-		t.Fatalf("expected 3 supported exchanges from meta route, got %v", metaResp.SupportedExchanges)
+	if len(metaResp.SupportedExchanges) != len(domain.SupportedExchangeNames()) {
+		t.Fatalf("expected %d supported exchanges from meta route, got %v", len(domain.SupportedExchangeNames()), metaResp.SupportedExchanges)
 	}
-	if len(metaResp.HistoryKeys) != 3 {
-		t.Fatalf("expected 3 history keys from meta route, got %v", metaResp.HistoryKeys)
+	if len(metaResp.HistoryKeys) != len(domain.SupportedExchangeNames()) {
+		t.Fatalf("expected %d history keys from meta route, got %v", len(domain.SupportedExchangeNames()), metaResp.HistoryKeys)
 	}
 
 	var changelogResp struct {
@@ -118,8 +119,8 @@ func TestMonitorServerStartupServesKeyRoutes(t *testing.T) {
 	if err := getJSON(client, server.URL+"/api/config", &configResp); err != nil {
 		t.Fatalf("failed to read config route: %v", err)
 	}
-	if len(configResp.Exchanges) != 3 {
-		t.Fatalf("expected 3 exchanges, got %v", configResp.Exchanges)
+	if len(configResp.Exchanges) != len(domain.SupportedExchangeNames()) {
+		t.Fatalf("expected %d exchanges, got %v", len(domain.SupportedExchangeNames()), configResp.Exchanges)
 	}
 
 	waitFor(t, 3*time.Second, func() error {
@@ -157,7 +158,7 @@ func TestHistoryContractMatchesMetaExchangeMetadata(t *testing.T) {
 			C2CIntervalMinutes: 1,
 			ForexIntervalHours: 1,
 			TargetAmounts:      []float64{30},
-			Exchanges:          []string{domain.ExchangeBinance, domain.ExchangeGate, domain.ExchangeOKX},
+			Exchanges:          domain.SupportedExchangeNames(),
 		},
 		Database: config.DatabaseConfig{DSN: "integration-test"},
 	}
@@ -165,6 +166,7 @@ func TestHistoryContractMatchesMetaExchangeMetadata(t *testing.T) {
 	repo := newMemoryRepository()
 	exchanges := map[string]domain.IExchange{
 		domain.ExchangeBinance: staticExchange{name: domain.ExchangeBinance, price: 7.08},
+		domain.ExchangeBitget:  staticExchange{name: domain.ExchangeBitget, price: 7.06},
 		domain.ExchangeGate:    staticExchange{name: domain.ExchangeGate, price: 7.09},
 		domain.ExchangeOKX:     staticExchange{name: domain.ExchangeOKX, price: 7.07},
 	}
